@@ -17,10 +17,26 @@ def fetch(url, timeout=15, retries=3):
                 raise
             time.sleep(2 ** i)
 
-def send_telegram(text):
+def send_telegram(text, html=False):
+    """发送 Telegram 消息，自动拆长文本"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}).encode()
-    urllib.request.urlopen(urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}))
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    if html:
+        payload["parse_mode"] = "HTML"
+    data = json.dumps(payload).encode()
+    try:
+        resp = json.load(urllib.request.urlopen(
+            urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
+        if not resp.get("ok"):
+            # Fallback: retry without HTML parse mode
+            del payload["parse_mode"]
+            data2 = json.dumps(payload).encode()
+            resp2 = json.load(urllib.request.urlopen(
+                urllib.request.Request(url, data=data2, headers={"Content-Type": "application/json"})))
+            if not resp2.get("ok"):
+                print(f"Telegram error: {resp2}", file=sys.stderr)
+    except Exception as e:
+        print(f"Telegram send failed: {e}", file=sys.stderr)
 
 # ── 数据采集 (减少API调用) ────────────────────────────
 coin = fetch("https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&market_data=true")
@@ -96,7 +112,7 @@ if chg_1h <= -3:
   跌破 ${fibs['0.786']:,.0f} → 减仓
   跌破 ${fibs['0.618']:,.0f} → 再减
 ━━━━━━━━━━━━━━━━━━━━"""
-    send_telegram(alert)
+    send_telegram(alert, html=True)
     print("ALERT SENT: 3% drop detected")
 
 # ── 整点判断 ──────────────────────────────────────────
@@ -229,5 +245,5 @@ report += f"""
 {trading_advice()}
 ━━━━━━━━━━━━━━━━━━━━"""
 
-send_telegram(report)
+send_telegram(report, html=True)
 print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
