@@ -1,0 +1,25 @@
+name: Event Monitor (FOMC/CPI/NFP + Rebalance)
+
+on:
+  schedule:
+    # 每天北京时间 8:00 检查
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'event_monitor.py'
+      - '.github/workflows/event-monitor.yml'
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check events & rebalance
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python event_monitor.py
