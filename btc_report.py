@@ -94,44 +94,73 @@ if not force and (bj_h % 2 != 0 or bj_m > 3):
 # ═══════════════════════════════════════════════════════
 # 4. 纳指/标普 + VIX 数据
 # ═══════════════════════════════════════════════════════
-def yahoo_quote(symbol):
-    """获取 Yahoo Finance 报价"""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+def stock_quote(symbol):
+    """获取股票报价，优先 Yahoo，失败则用其他源"""
+    # Yahoo Finance v8
+    url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
     try:
         d = fetch(url, timeout=10, retries=2)
         q = d["chart"]["result"][0]
         meta = q["meta"]
         close = q["indicators"]["quote"][0]["close"]
         prices = [p for p in close if p is not None]
+        prev = meta.get("previousClose") or meta.get("regularMarketPrice") or prices[0] if prices else None
         return {
             "price": meta["regularMarketPrice"],
-            "prev_close": meta.get("previousClose", meta["regularMarketPrice"]),
-            "high": meta["regularMarketDayHigh"],
-            "low": meta["regularMarketDayLow"],
-            "chg_pct": (meta["regularMarketPrice"] - meta.get("previousClose", meta["regularMarketPrice"])) / meta.get("previousClose", meta["regularMarketPrice"]) * 100,
+            "prev_close": prev,
+            "high": meta.get("regularMarketDayHigh"),
+            "low": meta.get("regularMarketDayLow"),
+            "chg_pct": (meta["regularMarketPrice"] - prev) / prev * 100 if prev and prev > 0 else 0,
             "prices_5d": prices,
         }
-    except:
-        return None
+    except Exception as e:
+        print(f"Yahoo {symbol}: {e}", file=sys.stderr)
 
-def yahoo_range(symbol, days=30):
-    """获取月/季度数据"""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={days}d"
+    # 备用: Alphavantage demo key
+    try:
+        av_symbol = {"^GSPC": "SPY", "^IXIC": "QQQ", "^VIX": "VIXY"}.get(symbol, symbol)
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={av_symbol}&apikey=demo"
+        d = fetch(url, timeout=10, retries=1)
+        q = d.get("Global Quote", {})
+        if q:
+            price = float(q.get("05. price", 0))
+            prev = float(q.get("08. previous close", price))
+            change = float(q.get("09. change", 0))
+            chg_pct = float(q.get("10. change percent", "0%").replace("%", ""))
+            return {
+                "price": price, "prev_close": prev,
+                "high": float(q.get("03. high", 0)),
+                "low": float(q.get("04. low", 0)),
+                "chg_pct": chg_pct,
+                "prices_5d": [price],
+            }
+    except Exception as e2:
+        print(f"AlphaVantage {symbol}: {e2}", file=sys.stderr)
+
+    return None
+
+def stock_range(symbol, days=30):
+    """获取历史数据"""
+    url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={days}d"
     try:
         d = fetch(url, timeout=10, retries=2)
         q = d["chart"]["result"][0]
         close = q["indicators"]["quote"][0]["close"]
         prices = [p for p in close if p is not None]
-        return {"high": max(prices), "low": min(prices), "chg": (prices[-1] - prices[0]) / prices[0] * 100 if prices else 0}
+        if prices:
+            return {"high": max(prices), "low": min(prices), "chg": (prices[-1] - prices[0]) / prices[0] * 100}
     except:
-        return None
+        pass
+    return None
 
-spx = yahoo_quote("^GSPC")
-ndx = yahoo_quote("^IXIC")
-vix = yahoo_quote("^VIX")
+spx = stock_quote("^GSPC")
+ndx = stock_quote("^IXIC")
+vix = stock_quote("^VIX")
 
-spx_m = yahoo_range("^GSPC", 30)
-ndx_m = yahoo_range("^IXIC", 30)
+spx_m = stock_range("^GSPC", 30)
+ndx_m = stock_range("^IXIC", 30)
+
+print(f"SPX: {spx['price'] if spx else 'N/A'}, NDX: {ndx['price'] if ndx else 'N/A'}, VIX: {vix['price'] if vix else 'N/A'}")
 
 # PE 估算（multipl.com）
 def get_pe(symbol):
