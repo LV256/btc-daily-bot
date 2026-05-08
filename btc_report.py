@@ -55,6 +55,7 @@ time.sleep(1.5)
 
 fng = fetch("https://api.alternative.me/fng/?limit=3")
 fng_now = int(fng["data"][0]["value"]); fng_cls = fng["data"][0]["value_classification"]
+fng_prev = int(fng["data"][1]["value"])
 
 glb = fetch("https://api.coingecko.com/api/v3/global")
 btc_dom = glb["data"]["market_cap_percentage"]["btc"]
