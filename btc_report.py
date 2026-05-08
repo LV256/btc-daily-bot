@@ -91,9 +91,23 @@ if btc_1h <= -3:
 now_utc = datetime.now(timezone.utc)
 bj_h = (now_utc.hour + 8) % 24; bj_m = now_utc.minute
 force = os.environ.get("FORCE_REPORT", "") == "1"
-if not force and (bj_h % 2 != 0 or bj_m > 3):
+# ── 自愈：检测调度空窗 ─────────────────────────────────
+STATE_FILE = os.path.join(os.path.dirname(__file__) or ".", "report_state.json")
+last_ts = 0
+try:
+    with open(STATE_FILE) as f:
+        s = json.load(f)
+        last_ts = s.get("last_report_ts", 0)
+except Exception:
+    pass
+gap_min = (time.time() - last_ts) / 60 if last_ts else 999
+heal = gap_min > 25  # 超过25分钟没推 → 调度空窗 → 自愈补推
+
+if not force and not heal and (bj_h % 2 != 0 or bj_m > 3):
     print(f"SKIP: {bj_h:02d}:{bj_m:02d}")
     sys.exit(0)
+if heal:
+    print(f"HEAL: 上次推送 {gap_min:.0f} 分钟前，自愈补推")
 
 # ═══════════════════════════════════════════════════════
 # 4. 纳指/标普 + VIX 数据
@@ -476,3 +490,9 @@ report += f"""
 
 send_telegram(report)
 print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
+# 写入状态时间戳（用于自愈检测）
+try:
+    with open(STATE_FILE, "w") as f:
+        json.dump({"last_report_ts": time.time(), "last_report_time": datetime.now(TZ).isoformat()}, f)
+except Exception:
+    pass

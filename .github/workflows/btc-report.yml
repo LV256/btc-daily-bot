@@ -29,3 +29,11 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FORCE_REPORT: ${{ github.event.inputs.force == 'true' && '1' || '0' }}
         run: python btc_report.py
+
+      - name: Persist state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add report_state.json
+          git diff --cached --quiet || git commit -m "chore: update report state"
+          git push
