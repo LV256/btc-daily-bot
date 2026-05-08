@@ -104,10 +104,10 @@ fibs = {
 
 # ── 暴跌检测 ──────────────────────────────────────────
 if chg_1h <= -3:
-    alert = f"""🚨 <b>BTC 暴跌警报</b> 🚨
+    alert = f"""🚨 BTC 暴跌警报 🚨
 
-当前: <b>${curr:,.0f}</b>
-1小时跌幅: <b>{chg_1h:.1f}%</b>
+当前: ${curr:,.0f}
+1小时跌幅: {chg_1h:.1f}%
 24h 高低: ${low_24:,.0f} — ${high_24:,.0f}
 恐惧贪婪: {fng_now} ({fng_cls})
 
@@ -121,7 +121,7 @@ if chg_1h <= -3:
   跌破 ${fibs['0.786']:,.0f} → 减仓
   跌破 ${fibs['0.618']:,.0f} → 再减
 ━━━━━━━━━━━━━━━━━━━━"""
-    send_telegram(alert, html=True)
+    send_telegram(alert)
     print("ALERT SENT: 3% drop detected")
 
 # ── 整点判断 ──────────────────────────────────────────
@@ -202,9 +202,9 @@ def trading_advice():
 now = datetime.now(TZ).strftime("%m-%d %H:%M")
 emoji = "📈" if chg_24h > 1 else "📉" if chg_24h < -1 else "➡️"
 
-report = f"""📊 <b>BTC 行情</b>  {now}
+report = f"""📊 BTC 行情  {now}
 
-{emoji} <b>${curr:,.0f}</b>  1h {chg_1h:+.1f}%  24h {chg_24h:+.1f}%
+{emoji} ${curr:,.0f}  1h {chg_1h:+.1f}%  24h {chg_24h:+.1f}%
 
 ━━━━━━━━━━━━━━━━━━━━
 📌 价格区间
@@ -221,7 +221,7 @@ report = f"""📊 <b>BTC 行情</b>  {now}
   距 ATH:    -{(ath - curr) / ath * 100:.1f}%
 
 ━━━━━━━━━━━━━━━━━━━━
-⚠️ <b>风险预警</b>
+⚠️ 风险预警
 """
 
 for icon, desc in risks[:5]:
@@ -229,7 +229,7 @@ for icon, desc in risks[:5]:
 
 report += f"""
 ━━━━━━━━━━━━━━━━━━━━
-🎯 <b>重点关注</b>
+🎯 重点关注
   🔼 阻力: ${r90['high']:,.0f} (90日高 / 多空分界)
       突破 → ${ath * 0.7:,.0f} → ${ath:,.0f}
   🔽 支撑: ${fibs['0.786']:,.0f} (0.786) → ${fibs['0.618']:,.0f} (0.618)
@@ -249,10 +249,10 @@ elif fng_prev - fng_now >= 5:
 
 report += f"""
 ━━━━━━━━━━━━━━━━━━━━
-💡 <b>操作建议</b>
+💡 操作建议
 
 {trading_advice()}
 ━━━━━━━━━━━━━━━━━━━━"""
 
-send_telegram(report, html=True)
+send_telegram(report)
 print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
