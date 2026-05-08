@@ -18,25 +18,27 @@ def fetch(url, timeout=15, retries=3):
             time.sleep(2 ** i)
 
 def send_telegram(text, html=False):
-    """发送 Telegram 消息，自动拆长文本"""
+    """发送 Telegram 消息"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
     if html:
         payload["parse_mode"] = "HTML"
     data = json.dumps(payload).encode()
-    try:
-        resp = json.load(urllib.request.urlopen(
-            urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
-        if not resp.get("ok"):
-            # Fallback: retry without HTML parse mode
+    resp = json.load(urllib.request.urlopen(
+        urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
+    if not resp.get("ok"):
+        err = resp.get("description", str(resp))
+        # HTML模式失败时降级为纯文本重试
+        if html and "parse" in err.lower():
             del payload["parse_mode"]
-            data2 = json.dumps(payload).encode()
-            resp2 = json.load(urllib.request.urlopen(
-                urllib.request.Request(url, data=data2, headers={"Content-Type": "application/json"})))
-            if not resp2.get("ok"):
-                print(f"Telegram error: {resp2}", file=sys.stderr)
-    except Exception as e:
-        print(f"Telegram send failed: {e}", file=sys.stderr)
+            data = json.dumps(payload).encode()
+            resp = json.load(urllib.request.urlopen(
+                urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
+            if not resp.get("ok"):
+                print(f"Telegram retry failed: {resp.get('description')}", file=sys.stderr)
+        else:
+            print(f"Telegram error: {err}", file=sys.stderr)
+    return resp.get("ok", False)
 
 # ── 数据采集 (减少API调用) ────────────────────────────
 coin = fetch("https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&market_data=true")
