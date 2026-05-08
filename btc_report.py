@@ -353,32 +353,86 @@ report += f"""
 ━━━━━━━━━━━━━━━━━━━━
 📈 纳指定投  (标普60% / 纳指40%)
 
-  标普500: {spx_str}
-  纳斯达克: {ndx_str}"""
-
-if vix and vix["price"]:
-    report += f"\n  VIX: {vix['price']:.1f}"
-
-report += f"\n  定投日: 每月{DCA_DAY}号"
+  定投日: 每月{DCA_DAY}号"""
 
 if is_dca_day:
     report += f"\n  🔔 今天就是定投日！"
 else:
     report += f"\n  距下次定投: {days_to_dca}天"
 
-if spx_m:
-    report += f"\n  标普30日: {spx_m['chg']:+.1f}%"
+report += f"""
+
+📌 指数行情
+  标普500: {spx_str} | 30日 {spx_m['chg']:+.1f}%""" if spx_m else ""
+
+if spx and spx.get("high") and spx.get("low"):
+    report += f" | 今高 {spx['high']:,.0f} 今低 {spx['low']:,.0f}"
+
+report += f"\n  纳斯达克: {ndx_str}"
+
 if ndx_m:
-    report += f"\n  纳指30日: {ndx_m['chg']:+.1f}%"
+    report += f" | 30日 {ndx_m['chg']:+.1f}%"
+
+if ndx and ndx.get("high") and ndx.get("low"):
+    report += f" | 今高 {ndx['high']:,.0f} 今低 {ndx['low']:,.0f}"
+
+if vix and vix["price"]:
+    report += f"\n  VIX: {vix['price']:.1f}"
 if spx_pe:
     report += f"\n  标普PE: {spx_pe:.1f}"
 
 report += f"""
 
+⚠️ 定投风险
+"""
+
+# DCA risk warnings
+dca_risks = []
+if spx_m and spx_m["chg"] < -5:
+    dca_risks.append(f"🟠 标普月跌{spx_m['chg']:.1f}%，大幅回撤中")
+elif spx_m and spx_m["chg"] < -2:
+    dca_risks.append(f"🟡 标普月跌{spx_m['chg']:.1f}%，小幅回撤")
+elif spx_m and spx_m["chg"] > 4:
+    dca_risks.append(f"🟢 标普月涨{spx_m['chg']:.1f}%，趋势向好")
+else:
+    dca_risks.append(f"🟢 标普月{'涨' if spx_m and spx_m['chg'] > 0 else '跌'}{spx_m['chg'] if spx_m else 0:+.1f}%，正常波动")
+
+if ndx_m and ndx_m["chg"] < -5:
+    dca_risks.append(f"🟠 纳指月跌{ndx_m['chg']:.1f}%，科技股承压")
+elif ndx_m and ndx_m["chg"] < -2:
+    dca_risks.append(f"🟡 纳指月跌{ndx_m['chg']:.1f}%，小幅回撤")
+
+if vix and vix["price"]:
+    v = vix["price"]
+    if v > 30:
+        dca_risks.append(f"🔴 VIX={v:.1f} 极度恐慌，机会区间")
+    elif v > 25:
+        dca_risks.append(f"🟠 VIX={v:.1f} 偏高，恐慌中")
+    elif v > 20:
+        dca_risks.append(f"🟡 VIX={v:.1f} 略高")
+    else:
+        dca_risks.append(f"🟢 VIX={v:.1f} 平稳")
+
+if spx_pe:
+    pe = spx_pe
+    if pe < 22:
+        dca_risks.append(f"🟢 PE={pe:.1f} 低估")
+    elif pe < 28:
+        dca_risks.append(f"🟡 PE={pe:.1f} 合理偏高")
+    elif pe < 33:
+        dca_risks.append(f"🟠 PE={pe:.1f} 高估")
+    else:
+        dca_risks.append(f"🔴 PE={pe:.1f} 极端高估")
+
+for r in dca_risks:
+    report += f"  {r}\n"
+
+report += f"""
 💡 定投建议
   {dca_advice()}
 
-━━━━━━━━━━━━━━━━━━━━"""
+━━━━━━━━━━━━━━━━━━━━
+—— Hermes · 每日自动推送 ──"""
 
 send_telegram(report)
 print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
