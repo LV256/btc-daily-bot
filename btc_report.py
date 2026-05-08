@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """BTC 行情监控 — 每2h详细报告 + 暴跌3%即时告警"""
-import json, os, sys, urllib.request
+import json, os, sys, urllib.request, time
 from datetime import datetime, timezone, timedelta
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 TZ = timezone(timedelta(hours=8))
 
-def fetch(url, timeout=15):
-    return json.load(urllib.request.urlopen(url, timeout=timeout))
+def fetch(url, timeout=15, retries=3):
+    """带重试的请求"""
+    for i in range(retries):
+        try:
+            return json.load(urllib.request.urlopen(url, timeout=timeout))
+        except Exception as e:
+            if i == retries - 1:
+                raise
+            time.sleep(2 ** i)
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}).encode()
     urllib.request.urlopen(urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}))
 
-# ── 数据 ──────────────────────────────────────────────
+# ── 数据采集 (减少API调用) ────────────────────────────
 coin = fetch("https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&market_data=true")
 md = coin["market_data"]
 curr = md["current_price"]["usd"]
@@ -27,19 +34,36 @@ vol_24 = md["total_volume"]["usd"]
 mcap = md["market_cap"]["usd"]
 ath = md["ath"]["usd"]
 
-ranges = {}
-for label, days in [("24H", 1), ("7D", 7), ("30D", 30), ("90D", 90)]:
-    c = fetch(f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days={days}")
-    prices = [p[1] for p in c["prices"]]
-    ranges[label] = {"high": max(prices), "low": min(prices),
-                     "chg": (curr - prices[0]) / prices[0] * 100,
-                     "amp": (max(prices) - min(prices)) / min(prices) * 100}
+time.sleep(1.5)
 
+# 一次拿90天数据，从中提取各周期
+c90 = fetch(f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=90")
+prices_90 = [p[1] for p in c90["prices"]]
+n = len(prices_90)
+ranges = {}
+for label, hours in [("24H", 24), ("7D", 168), ("30D", 720)]:
+    # 每小时约1个数据点（实际更密），估算分割点
+    seg = prices_90[-(hours):] if hours < n else prices_90
+    ranges[label] = {
+        "high": max(seg), "low": min(seg),
+        "chg": (curr - seg[0]) / seg[0] * 100,
+        "amp": (max(seg) - min(seg)) / min(seg) * 100,
+    }
+ranges["90D"] = {
+    "high": max(prices_90), "low": min(prices_90),
+    "chg": (curr - prices_90[0]) / prices_90[0] * 100,
+    "amp": (max(prices_90) - min(prices_90)) / min(prices_90) * 100,
+}
+
+time.sleep(1.5)
+
+# 恐惧贪婪
 fng = fetch("https://api.alternative.me/fng/?limit=3")
 fng_now = int(fng["data"][0]["value"])
 fng_cls = fng["data"][0]["value_classification"]
 fng_prev = int(fng["data"][1]["value"])
 
+# 全局数据
 glb = fetch("https://api.coingecko.com/api/v3/global")
 btc_dom = glb["data"]["market_cap_percentage"]["btc"]
 tot_mcap = glb["data"]["total_market_cap"]["usd"]
@@ -53,7 +77,7 @@ fibs = {
     "0.382": r90["low"] + fib_diff * 0.382, "0.0": r90["low"],
 }
 
-# ── 暴跌检测 (1h变化超过-3%) ──────────────────────────
+# ── 暴跌检测 ──────────────────────────────────────────
 if chg_1h <= -3:
     alert = f"""🚨 <b>BTC 暴跌警报</b> 🚨
 
@@ -75,97 +99,77 @@ if chg_1h <= -3:
     send_telegram(alert)
     print("ALERT SENT: 3% drop detected")
 
-# ── 每2小时详细报告 ──────────────────────────────────
-# 北京时间偶数整点触发 (0,2,4,6,8,10,12,14,16,18,20,22)
-# GitHub cron: */120 分钟 近似2h，靠脚本判断
+# ── 整点判断 ──────────────────────────────────────────
 now_utc = datetime.now(timezone.utc)
-beijing_hour = (now_utc.hour + 8) % 24
-beijing_min = now_utc.minute
+bj_h = (now_utc.hour + 8) % 24
+bj_m = now_utc.minute
 
-# 仅在整点±3分钟内推送（cron 5分钟一次，这个窗口正好命中一次）
-if beijing_min > 3:
-    print(f"SKIP: {beijing_hour:02d}:{beijing_min:02d} 非整点窗口，跳过详细报告")
+# 仅在偶数整点±3分钟推送详细报告
+if bj_h % 2 != 0 or bj_m > 3:
+    print(f"SKIP: {bj_h:02d}:{bj_m:02d}")
     sys.exit(0)
 
-# ── 风险评估矩阵 ──────────────────────────────────────
+# ── 风险评估 ──────────────────────────────────────────
 risks = []
-# 1. 价格结构
 if curr > fibs["0.786"]:
     risks.append(("🟢", f"价格结构健康，高于 0.786 Fib (${fibs['0.786']:,.0f})。趋势偏多"))
 elif curr > fibs["0.618"]:
-    risks.append(("🟡", f"价格在 0.618-0.786 之间，中性偏弱。若跌破 ${fibs['0.618']:,.0f} 结构恶化"))
+    risks.append(("🟡", f"价格在 0.618-0.786 之间，中性偏弱。跌破 ${fibs['0.618']:,.0f} 结构恶化"))
 elif curr > fibs["0.5"]:
-    risks.append(("🟠", f"价格跌破 0.618，结构走弱。${fibs['0.5']:,.0f} (0.5) 是最后的防线"))
+    risks.append(("🟠", f"价格跌破 0.618，结构走弱。${fibs['0.5']:,.0f} 是最后防线"))
 else:
-    risks.append(("🔴", f"价格跌破 0.5 Fib，结构严重受损。需要重新评估底部"))
+    risks.append(("🔴", f"价格跌破 0.5 Fib，结构严重受损"))
 
-# 2. 短期动量
 if chg_24h > 3:
     risks.append(("🟢", f"24h 涨幅 {chg_24h:.1f}%，短期动能强"))
 elif chg_24h > 0:
-    risks.append(("🟢", f"24h 微涨 {chg_24h:.1f}%，方向中性偏多"))
+    risks.append(("🟢", f"24h 微涨 {chg_24h:.1f}%，中性偏多"))
 elif chg_24h > -3:
-    risks.append(("🟡", f"24h 下跌 {chg_24h:.1f}%，正常回调范围"))
+    risks.append(("🟡", f"24h 下跌 {chg_24h:.1f}%，正常回调"))
 else:
-    risks.append(("🟠", f"24h 跌超 {chg_24h:.1f}%，短期空头占优，需警惕"))
+    risks.append(("🟠", f"24h 跌超 {chg_24h:.1f}%，空头占优"))
 
-# 3. 成交量
-vol_avg_7d = ranges["7D"]["amp"]  # approximate
-if vol_24 > 50e9:
-    risks.append(("🟡", f"放量 ${vol_24/1e9:.1f}B，若下跌则为出货信号"))
+if vol_24 > 45e9:
+    risks.append(("🟡", f"放量 ${vol_24/1e9:.1f}B，下跌是出货信号"))
 elif vol_24 > 25e9:
     risks.append(("🟢", f"成交量正常 ${vol_24/1e9:.1f}B"))
 else:
-    risks.append(("🟢", f"缩量 ${vol_24/1e9:.1f}B，抛压不大"))
+    risks.append(("🟢", f"缩量 ${vol_24/1e9:.1f}B，抛压有限"))
 
-# 4. 情绪
 if fng_now <= 25:
-    risks.append(("🟢", f"极度恐惧 ({fng_now}) — 历史上是买点区域，但不等于马上见底"))
+    risks.append(("🟢", f"极度恐惧 ({fng_now})，历史买点区域，但不等于马上见底"))
 elif fng_now <= 40:
-    risks.append(("🟡", f"恐惧区间 ({fng_now}) — 市场谨慎，反弹持续性存疑"))
+    risks.append(("🟡", f"恐惧区间 ({fng_now})，市场谨慎"))
 elif fng_now <= 60:
-    risks.append(("🟢", f"中性 ({fng_now}) — 情绪正常"))
+    risks.append(("🟢", f"中性 ({fng_now})"))
 else:
-    risks.append(("🟡", f"贪婪 ({fng_now}) — 注意过热"))
-# 趋势变化
+    risks.append(("🟡", f"贪婪 ({fng_now})，注意过热"))
 if fng_now < fng_prev - 10:
-    risks.append(("🟠", f"情绪恶化: {fng_prev}→{fng_now}，短期内谨慎"))
+    risks.append(("🟠", f"情绪恶化: {fng_prev}→{fng_now}"))
 
-# 5. BTC 市占率
 if btc_dom > 58:
-    risks.append(("🟡", f"BTC 市占率 {btc_dom:.1f}% 偏高，山寨币失血，市场风险偏好低"))
+    risks.append(("🟡", f"BTC 市占率 {btc_dom:.1f}% 偏高，山寨失血"))
 
 # ── 操作建议 ──────────────────────────────────────────
 def trading_advice():
     lines = []
     dd_ath = (ath - curr) / ath * 100
-
-    # 持仓建议
     if curr > fibs["0.786"]:
-        lines.append(f"📌 持仓: 结构健康，继续持有。止损上移至 ${fibs['0.786']:,.0f}")
+        lines.append(f"📌 持仓: 结构健康。止损上移至 ${fibs['0.786']:,.0f}")
     elif curr > fibs["0.618"]:
-        lines.append(f"📌 持仓: 中性偏弱，仓位不超过 50%。止损 ${fibs['0.618']:,.0f}")
+        lines.append(f"📌 持仓: 中性偏弱，≤50% 仓位。止损 ${fibs['0.618']:,.0f}")
     elif curr > fibs["0.5"]:
-        lines.append(f"📌 持仓: 结构走弱，仓位控制在 30%。止损 ${fibs['0.5']:,.0f}")
+        lines.append(f"📌 持仓: 走弱，≤30% 仓位。止损 ${fibs['0.5']:,.0f}")
     else:
-        lines.append(f"📌 持仓: 严重走弱，观望或轻仓。${fibs['0.0']:,.0f} 抄底区")
-
-    # 加仓条件
+        lines.append(f"📌 持仓: 观望。${fibs['0.0']:,.0f} 抄底区")
     if curr < fibs["0.618"]:
-        lines.append(f"💰 加仓: ${fibs['0.5']:,.0f} 和 ${fibs['0.0']:,.0f} 分批挂单")
+        lines.append(f"💰 加仓挂单: ${fibs['0.5']:,.0f} / ${fibs['0.0']:,.0f}")
     elif curr < fibs["0.786"]:
-        lines.append(f"💰 加仓: ${fibs['0.618']:,.0f} 挂单，不要追高")
-
-    # 减仓/止损
-    lines.append(f"🛑 减仓: 日线收盘跌破 ${fibs['0.618']:,.0f} → 减仓 30%")
-    lines.append(f"🛑 止损: 日线收盘跌破 ${fibs['0.5']:,.0f} → 减仓 50%")
-
-    # 突破追入
-    lines.append(f"🚀 追入: 放量突破 ${r90['high']:,.0f} (90日高) → 趋势确认，可加仓")
-
-    # 定投者提示
-    lines.append(f"📅 定投: 当前距 ATH 回撤 {dd_ath:.0f}%，属于合理定投区间")
-
+        lines.append(f"💰 加仓挂单: ${fibs['0.618']:,.0f}")
+    lines.append(f"🛑 减仓: 日线收 < ${fibs['0.618']:,.0f} → -30%")
+    lines.append(f"🛑 止损: 日线收 < ${fibs['0.5']:,.0f} → -50%")
+    lines.append(f"🚀 突破: 放量过 ${r90['high']:,.0f} → 加仓")
+    lines.append(f"📅 定投: ATH回撤 {dd_ath:.0f}%，合理区间")
     return "\n".join(lines)
 
 # ── 生成报告 ──────────────────────────────────────────
@@ -184,11 +188,11 @@ report = f"""📊 <b>BTC 行情</b>  {now}
   90日: ${ranges['90D']['low']:,.0f} — ${ranges['90D']['high']:,.0f}  ({ranges['90D']['chg']:+.1f}%)
 
 📌 市场数据
-  成交:  ${vol_24/1e9:.1f}B
-  市值:  ${mcap/1e12:.2f}T / 总 ${tot_mcap/1e12:.2f}T
-  BTC 市占: {btc_dom:.1f}%
-  恐惧贪婪: {fng_now} ({fng_cls})  {'↑' if fng_now > fng_prev else '↓'}
-  距 ATH:  -{(ath - curr) / ath * 100:.1f}%
+  成交量:    ${vol_24/1e9:.1f}B
+  BTC 市值:  ${mcap/1e12:.2f}T / 总 ${tot_mcap/1e12:.2f}T
+  BTC 市占:  {btc_dom:.1f}%
+  恐惧贪婪:  {fng_now} ({fng_cls})  {'↑' if fng_now > fng_prev else '↓'}
+  距 ATH:    -{(ath - curr) / ath * 100:.1f}%
 
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ <b>风险预警</b>
@@ -200,26 +204,22 @@ for icon, desc in risks[:5]:
 report += f"""
 ━━━━━━━━━━━━━━━━━━━━
 🎯 <b>重点关注</b>
+  🔼 阻力: ${r90['high']:,.0f} (90日高 / 多空分界)
+      突破 → ${ath * 0.7:,.0f} → ${ath:,.0f}
+  🔽 支撑: ${fibs['0.786']:,.0f} (0.786) → ${fibs['0.618']:,.0f} (0.618)
 """
 
-# 关键位
-report += f"  🔼 阻力: ${r90['high']:,.0f} (90日高 / 多空分界)\n"
-report += f"      突破 → 趋势转强，目标 ${ath * 0.7:,.0f} → ${ath:,.0f}\n"
-report += f"  🔽 支撑: ${fibs['0.786']:,.0f} (0.786) → ${fibs['0.618']:,.0f} (0.618)\n"
-
-# 量价关系
 if chg_24h < 0 and vol_24 < 35e9:
     report += f"  📊 缩量下跌，空头力度有限\n"
 elif chg_24h < 0 and vol_24 > 45e9:
-    report += f"  📊 ⚠️ 放量下跌，出货信号\n"
+    report += f"  📊 ⚠️ 放量下跌，警惕出货\n"
 elif chg_24h > 0 and vol_24 > 45e9:
     report += f"  📊 放量上涨，买盘积极\n"
 
-# 情绪
 if fng_now <= 30:
-    report += f"  🧠 恐惧指数 {fng_now}，接近极端恐惧，关注是否出现情绪底\n"
+    report += f"  🧠 恐惧 {fng_now}，接近极恐，关注情绪底\n"
 elif fng_prev - fng_now >= 5:
-    report += f"  🧠 情绪恶化中 ({fng_prev}→{fng_now})，警惕恐慌蔓延\n"
+    report += f"  🧠 情绪恶化 ({fng_prev}→{fng_now})，防恐慌\n"
 
 report += f"""
 ━━━━━━━━━━━━━━━━━━━━
@@ -229,4 +229,4 @@ report += f"""
 ━━━━━━━━━━━━━━━━━━━━"""
 
 send_telegram(report)
-print(f"REPORT SENT: {beijing_hour:02d}:{beijing_min:02d}")
+print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
