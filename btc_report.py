@@ -225,84 +225,140 @@ def dca_advice():
     return "\n".join(lines) if lines else "📊 无特殊信号，正常定投即可"
 
 # ═══════════════════════════════════════════════════════
-# 6. BTC 风险
+# 6. BTC 风险评估 (完整版)
 # ═══════════════════════════════════════════════════════
 btc_risks = []
 if btc > fibs["0.786"]:
-    btc_risks.append(f"🟢 价格高于0.786 Fib (${fibs['0.786']:,.0f})，结构健康")
+    btc_risks.append(("🟢", f"价格结构健康，高于 0.786 Fib (${fibs['0.786']:,.0f})。趋势偏多"))
 elif btc > fibs["0.618"]:
-    btc_risks.append(f"🟡 0.618-0.786之间，中性偏弱")
+    btc_risks.append(("🟡", f"价格在 0.618-0.786 之间，中性偏弱。跌破 ${fibs['0.618']:,.0f} 结构恶化"))
+elif btc > fibs["0.5"]:
+    btc_risks.append(("🟠", f"价格跌破 0.618，结构走弱。${fibs['0.5']:,.0f} 是最后防线"))
 else:
-    btc_risks.append(f"🟠 跌破0.618，结构走弱")
+    btc_risks.append(("🔴", f"价格跌破 0.5 Fib，结构严重受损"))
 
-btc_risks.append(f"{'🟠' if btc_24h < -3 else '🟡' if btc_24h < 0 else '🟢'} 24h{btc_24h:+.1f}%")
+if btc_24h > 3:
+    btc_risks.append(("🟢", f"24h 涨幅 {btc_24h:.1f}%，短期动能强"))
+elif btc_24h > 0:
+    btc_risks.append(("🟢", f"24h 微涨 {btc_24h:.1f}%，中性偏多"))
+elif btc_24h > -3:
+    btc_risks.append(("🟡", f"24h 下跌 {btc_24h:.1f}%，正常回调"))
+else:
+    btc_risks.append(("🟠", f"24h 跌超 {btc_24h:.1f}%，空头占优"))
 
 if btc_vol > 45e9:
-    btc_risks.append(f"🟡 放量 ${btc_vol/1e9:.1f}B")
-elif btc_vol < 25e9:
-    btc_risks.append(f"🟢 缩量 ${btc_vol/1e9:.1f}B")
+    btc_risks.append(("🟡", f"放量 ${btc_vol/1e9:.1f}B，下跌是出货信号"))
+elif btc_vol > 25e9:
+    btc_risks.append(("🟢", f"成交量正常 ${btc_vol/1e9:.1f}B"))
+else:
+    btc_risks.append(("🟢", f"缩量 ${btc_vol/1e9:.1f}B，抛压有限"))
 
 if fng_now <= 25:
-    btc_risks.append(f"🟢 极恐{fng_now}，买点区域")
+    btc_risks.append(("🟢", f"极度恐惧 ({fng_now})，历史买点区域，但不等于马上见底"))
 elif fng_now <= 40:
-    btc_risks.append(f"🟡 恐惧{fng_now}")
+    btc_risks.append(("🟡", f"恐惧区间 ({fng_now})，市场谨慎"))
+elif fng_now <= 60:
+    btc_risks.append(("🟢", f"中性 ({fng_now})"))
+else:
+    btc_risks.append(("🟡", f"贪婪 ({fng_now})，注意过热"))
+if fng_now < fng_prev - 10:
+    btc_risks.append(("🟠", f"情绪恶化: {fng_prev}→{fng_now}"))
 
 if btc_dom > 58:
-    btc_risks.append(f"🟡 BTC市占{btc_dom:.1f}%偏高")
+    btc_risks.append(("🟡", f"BTC 市占率 {btc_dom:.1f}% 偏高，山寨失血"))
 
-# BTC 操作
+# BTC 操作建议
 def btc_advice():
     lines = []
-    dd = (btc_ath - btc) / btc_ath * 100
+    dd_ath = (btc_ath - btc) / btc_ath * 100
     if btc > fibs["0.786"]:
-        lines.append(f"持仓: 健康，止损${fibs['0.786']:,.0f}")
-        lines.append(f"加仓: ${fibs['0.618']:,.0f}挂单")
+        lines.append(f"📌 持仓: 结构健康。止损上移至 ${fibs['0.786']:,.0f}")
+    elif btc > fibs["0.618"]:
+        lines.append(f"📌 持仓: 中性偏弱，≤50% 仓位。止损 ${fibs['0.618']:,.0f}")
+    elif btc > fibs["0.5"]:
+        lines.append(f"📌 持仓: 走弱，≤30% 仓位。止损 ${fibs['0.5']:,.0f}")
     else:
-        lines.append(f"持仓: ≤50%，止损${fibs['0.618']:,.0f}")
-    lines.append(f"减仓: 日线收<${fibs['0.618']:,.0f}→-30%")
-    lines.append(f"突破: 过${r90['high']:,.0f}→加仓")
+        lines.append(f"📌 持仓: 观望。${fibs['0.0']:,.0f} 抄底区")
+    if btc < fibs["0.618"]:
+        lines.append(f"💰 加仓挂单: ${fibs['0.5']:,.0f} / ${fibs['0.0']:,.0f}")
+    elif btc < fibs["0.786"]:
+        lines.append(f"💰 加仓挂单: ${fibs['0.618']:,.0f}")
+    lines.append(f"🛑 减仓: 日线收 < ${fibs['0.618']:,.0f} → -30%")
+    lines.append(f"🛑 止损: 日线收 < ${fibs['0.5']:,.0f} → -50%")
+    lines.append(f"🚀 突破: 放量过 ${r90['high']:,.0f} → 加仓")
+    lines.append(f"📅 BTC定投: ATH回撤 {dd_ath:.0f}%，合理区间")
     return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════
 # 7. 生成综合报告
 # ═══════════════════════════════════════════════════════
 now = datetime.now(TZ).strftime("%m-%d %H:%M")
+emoji = "📈" if btc_24h > 1 else "📉" if btc_24h < -1 else "➡️"
 
 spx_str = f"${spx['price']:,.0f} ({spx['chg_pct']:+.1f}%)" if spx else "N/A"
 ndx_str = f"${ndx['price']:,.0f} ({ndx['chg_pct']:+.1f}%)" if ndx else "N/A"
-vix_str = f"{vix['price']:.1f}" if vix and vix["price"] else "N/A"
 
-btc_emoji = "📈" if btc_24h > 1 else "📉" if btc_24h < -1 else "➡️"
+report = f"""📊 BTC 行情  {now}
 
-report = f"""📊 综合行情  {now}
-
-₿ BTC {btc_emoji} ${btc:,.0f}  1h{btc_1h:+.1f}%  24h{btc_24h:+.1f}%
-📈 标普 ${spx_str}
-📈 纳指 ${ndx_str}
-😱 VIX {vix_str}  |  恐惧贪婪 {fng_now}
+{emoji} ${btc:,.0f}  1h {btc_1h:+.1f}%  24h {btc_24h:+.1f}%
 
 ━━━━━━━━━━━━━━━━━━━━
-📌 BTC 关键数据
-  24h: ${btc_low24:,.0f} — ${btc_high24:,.0f}  |  7日 {ranges['7D']['chg']:+.1f}%
-  30日 {ranges['30D']['chg']:+.1f}%  |  90日 {ranges['90D']['chg']:+.1f}%
-  距ATH: -{(btc_ath-btc)/btc_ath*100:.1f}%  |  市占{btc_dom:.1f}%
+📌 价格区间
+  24h:  ${btc_low24:,.0f} — ${btc_high24:,.0f}
+  7日:  ${ranges['7D']['low']:,.0f} — ${ranges['7D']['high']:,.0f}  ({ranges['7D']['chg']:+.1f}%)
+  30日: ${ranges['30D']['low']:,.0f} — ${ranges['30D']['high']:,.0f}  ({ranges['30D']['chg']:+.1f}%)
+  90日: ${ranges['90D']['low']:,.0f} — ${ranges['90D']['high']:,.0f}  ({ranges['90D']['chg']:+.1f}%)
 
-⚠️ BTC风险
+📌 市场数据
+  成交量:    ${btc_vol/1e9:.1f}B
+  BTC 市值:  ${btc_mcap/1e12:.2f}T / 总 ${tot_mcap/1e12:.2f}T
+  BTC 市占:  {btc_dom:.1f}%
+  恐惧贪婪:  {fng_now} ({fng_cls})  {'↑' if fng_now > fng_prev else '↓'}
+  距 ATH:    -{(btc_ath - btc) / btc_ath * 100:.1f}%
+
+━━━━━━━━━━━━━━━━━━━━
+⚠️ 风险预警
 """
-for r in btc_risks:
-    report += f"  {r}\n"
+
+for icon, desc in btc_risks[:5]:
+    report += f"  {icon} {desc}\n"
 
 report += f"""
-🎯 BTC关键位
-  阻力: ${r90['high']:,.0f} (90日高)
-  支撑: ${fibs['0.786']:,.0f} → ${fibs['0.618']:,.0f}
+━━━━━━━━━━━━━━━━━━━━
+🎯 重点关注
+  🔼 阻力: ${r90['high']:,.0f} (90日高 / 多空分界)
+      突破 → ${btc_ath * 0.7:,.0f} → ${btc_ath:,.0f}
+  🔽 支撑: ${fibs['0.786']:,.0f} (0.786) → ${fibs['0.618']:,.0f} (0.618)
+"""
 
-💡 BTC操作
-  {btc_advice()}
+if btc_24h < 0 and btc_vol < 35e9:
+    report += f"  📊 缩量下跌，空头力度有限\n"
+elif btc_24h < 0 and btc_vol > 45e9:
+    report += f"  📊 ⚠️ 放量下跌，警惕出货\n"
+elif btc_24h > 0 and btc_vol > 45e9:
+    report += f"  📊 放量上涨，买盘积极\n"
+
+if fng_now <= 30:
+    report += f"  🧠 恐惧 {fng_now}，接近极恐，关注情绪底\n"
+elif fng_prev - fng_now >= 5:
+    report += f"  🧠 情绪恶化 ({fng_prev}→{fng_now})，防恐慌\n"
+
+report += f"""
+━━━━━━━━━━━━━━━━━━━━
+💡 BTC 操作建议
+
+{btc_advice()}
 
 ━━━━━━━━━━━━━━━━━━━━
-📌 纳指定投  (标普60% / 纳指40%)
-  定投日: 每月{DCA_DAY}号"""
+📈 纳指定投  (标普60% / 纳指40%)
+
+  标普500: {spx_str}
+  纳斯达克: {ndx_str}"""
+
+if vix and vix["price"]:
+    report += f"\n  VIX: {vix['price']:.1f}"
+
+report += f"\n  定投日: 每月{DCA_DAY}号"
 
 if is_dca_day:
     report += f"\n  🔔 今天就是定投日！"
