@@ -70,6 +70,120 @@ fibs = {"1.0": r90["high"], "0.786": r90["low"] + d * 0.786, "0.618": r90["low"]
         "0.5": r90["low"] + d * 0.5, "0.382": r90["low"] + d * 0.382, "0.0": r90["low"]}
 
 # ═══════════════════════════════════════════════════════
+# 1.5 ETF 资金流 (Farside via Jina AI)
+# ═══════════════════════════════════════════════════════
+def fetch_etf_flow():
+    """抓取 Farside BTC ETF 资金流，返回最近5天 + 汇总"""
+    try:
+        url = "https://r.jina.ai/https://farside.co.uk/btc/"
+        req = urllib.request.Request(url, headers={"Accept": "text/markdown", "User-Agent": "Mozilla/5.0"})
+        md = urllib.request.urlopen(req, timeout=20).read().decode()
+    except Exception as e:
+        print(f"ETF fetch error: {e}", file=sys.stderr)
+        return None
+
+    # 解析 Markdown 表格: | 20 Apr 2026 | 256.0 | (6.6) | ... | 238.4 |
+    rows = []
+    in_table = False
+    for line in md.split("\n"):
+        line = line.strip()
+        if "| Total |" in line and "IBIT" not in line:
+            in_table = False
+            continue
+        if "IBIT | FBTC | BITB" in line:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if not line.startswith("|"):
+            continue
+        cols = [c.strip() for c in line.split("|")]
+        # 格式: 空 | 日期 | IBIT | FBTC | ... | Total | 空
+        if len(cols) < 3:
+            continue
+        date_cell = cols[1]
+        # 匹配日期格式
+        m = re.match(r'(\d{1,2} \w{3} \d{4})', date_cell)
+        if not m:
+            continue
+        date_str = m.group(1)
+        # 最后一列为 Total
+        total_cell = cols[-2]  # 倒数第二列（最后一列为空）
+        # Farside 用 () 表示负数: (268.5) → -268.5
+        total_cell = total_cell.replace("(", "-").replace(")", "")
+        try:
+            total = float(total_cell.replace(",", ""))
+        except ValueError:
+            total = 0.0  # 当天数据未出（"-"）
+
+        # 各基金明细
+        funds = {}
+        fund_names = ["IBIT", "FBTC", "BITB", "ARKB", "BTCO", "EZBC", "BRRR", "HODL", "BTCW", "MSBT", "GBTC", "BTC"]
+        for i, name in enumerate(fund_names):
+            try:
+                val = float(cols[i + 2].replace(",", ""))
+            except (ValueError, IndexError):
+                val = 0.0
+            funds[name] = val
+
+        rows.append({"date": date_str, "total": total, "funds": funds})
+
+    if not rows:
+        return None
+
+    # 最近5天
+    recent = rows[-5:] if len(rows) >= 5 else rows
+
+    # 5日累计
+    total_5d = sum(r["total"] for r in recent)
+
+    # 连续流入/流出天数
+    streak = 0
+    for r in reversed(rows):
+        if r["total"] > 0:
+            if streak <= 0:
+                streak = 1 if streak == 0 else streak
+            else:
+                streak += 1
+        elif r["total"] < 0:
+            if streak >= 0:
+                streak = -1 if streak == 0 else streak
+            else:
+                streak -= 1
+        if r["total"] == 0:
+            continue
+        if abs(streak) > 1:
+            # 检查是否真正连续
+            pass
+
+    # 重新计算连续方向
+    direction = ""
+    inflow_days = 0
+    outflow_days = 0
+    for r in rows[-10:]:
+        if r["total"] > 0:
+            inflow_days += 1
+            outflow_days = 0
+        elif r["total"] < 0:
+            outflow_days += 1
+            inflow_days = 0
+    if outflow_days >= 2:
+        direction = f"连续{outflow_days}日流出⚠️"
+    elif inflow_days >= 3:
+        direction = f"连续{inflow_days}日流入✅"
+    else:
+        direction = "方向不定"
+
+    return {
+        "recent": recent,
+        "total_5d": total_5d,
+        "direction": direction,
+        "latest": rows[-1] if rows else None,
+    }
+
+etf = fetch_etf_flow()
+
+# ═══════════════════════════════════════════════════════
 # 2. 暴跌告警 (BTC 1h -3%)
 # ═══════════════════════════════════════════════════════
 if btc_1h <= -3:
@@ -370,11 +484,64 @@ report = f"""📊 BTC 行情  {now}
   BTC 市占:  {btc_dom:.1f}%
   恐惧贪婪:  {fng_now} ({fng_cls})  {'↑' if fng_now > fng_prev else '↓'}
   距 ATH:    -{(btc_ath - btc) / btc_ath * 100:.1f}%
+"""
 
+# ETF 资金流
+if etf and etf.get("recent"):
+    report += f"""
+📌 BTC ETF 资金流 (US$M)
+  状态:    {etf['direction']}
+  5日累计: {etf['total_5d']:+.1f}M
+"""
+    for r in reversed(etf["recent"]):
+        flag = "🔴" if r["total"] < -50 else "🟢" if r["total"] > 50 else "➖"
+        report += f"  {flag} {r['date']:>6}: {r['total']:+.1f}M"
+        # 显示流入/流出最大的基金
+        funds = r.get("funds", {})
+        if funds:
+            inflows = [(k, v) for k, v in funds.items() if v > 10]
+            outflows = [(k, v) for k, v in funds.items() if v < -10]
+            if outflows:
+                top_out = min(outflows, key=lambda x: x[1])
+                report += f"  ({top_out[0]} {top_out[1]:.0f}M)"
+            if inflows:
+                top_in = max(inflows, key=lambda x: x[1])
+                report += f"  ({top_in[0]} +{top_in[1]:.0f}M)"
+        report += "\n"
+
+report += f"""
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ 风险预警
 """
+# ETF 风险
+if etf and etf.get("recent"):
+    recent = etf["recent"]
+    # 连续方向
+    out_streak = 0; in_streak = 0
+    for r in reversed(recent):
+        if r["total"] < 0: out_streak += 1; break
+        elif r["total"] > 0: in_streak += 1; break
+        else: break
+    etf_risks = []
+    if out_streak > 0:
+        if etf["total_5d"] < -500:
+            etf_risks.append(("🔴", "ETF 5日流出大幅，机构出逃"))
+        elif etf["total_5d"] < -100:
+            etf_risks.append(("🟠", f"ETF 流出 {etf['total_5d']:+.0f}M/5日，关注是否持续"))
+        else:
+            etf_risks.append(("🟡", "ETF 小幅流出，暂不恐慌"))
+    elif in_streak > 0:
+        if etf["total_5d"] > 1000:
+            etf_risks.append(("🟢", f"ETF 5日大幅流入 {etf['total_5d']:+.0f}M，机构抢筹"))
+        elif etf["total_5d"] > 200:
+            etf_risks.append(("🟢", f"ETF 持续流入 {etf['total_5d']:+.0f}M/5日"))
+        else:
+            etf_risks.append(("🟢", "ETF 小幅净流入"))
+    # 添加到风险列表
+    for icon, desc in etf_risks:
+        report += f"  {icon} ETF: {desc}\n"
 
+report += "\n"
 for icon, desc in btc_risks[:5]:
     report += f"  {icon} {desc}\n"
 
