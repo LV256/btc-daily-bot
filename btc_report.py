@@ -24,21 +24,28 @@ def send_telegram(text, html=False):
     if html:
         payload["parse_mode"] = "HTML"
     data = json.dumps(payload).encode()
-    resp = json.load(urllib.request.urlopen(
-        urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
-    if not resp.get("ok"):
-        err = resp.get("description", str(resp))
-        # HTML模式失败时降级为纯文本重试
-        if html and "parse" in err.lower():
+    try:
+        resp = json.load(urllib.request.urlopen(
+            urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"Telegram HTTP {e.code}: {body}", file=sys.stderr)
+        # HTML 失败时降级重试
+        if html:
             del payload["parse_mode"]
             data = json.dumps(payload).encode()
-            resp = json.load(urllib.request.urlopen(
-                urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
-            if not resp.get("ok"):
-                print(f"Telegram retry failed: {resp.get('description')}", file=sys.stderr)
+            try:
+                resp = json.load(urllib.request.urlopen(
+                    urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})))
+            except urllib.error.HTTPError as e2:
+                print(f"Telegram retry HTTP {e2.code}: {e2.read().decode()}", file=sys.stderr)
+                return False
         else:
-            print(f"Telegram error: {err}", file=sys.stderr)
-    return resp.get("ok", False)
+            return False
+    if not resp.get("ok"):
+        print(f"Telegram error: {resp.get('description')}", file=sys.stderr)
+        return False
+    return True
 
 # ── 数据采集 (减少API调用) ────────────────────────────
 coin = fetch("https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&market_data=true")
