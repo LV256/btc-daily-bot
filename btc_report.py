@@ -11,10 +11,14 @@ DCA_DAY = 15  # 每月15号定投
 # ── 定投配置 ──────────────────────────────────────────
 DCA_ALLOC = {"SPX": 0.60, "NDX": 0.40}  # 标普60% 纳指40%
 
-def fetch(url, timeout=15, retries=3):
+def fetch(url, timeout=15, retries=3, headers=None):
     for i in range(retries):
         try:
-            return json.load(urllib.request.urlopen(url, timeout=timeout))
+            req = urllib.request.Request(url)
+            if headers:
+                for k, v in headers.items():
+                    req.add_header(k, v)
+            return json.load(urllib.request.urlopen(req, timeout=timeout))
         except Exception:
             if i == retries - 1: raise
             time.sleep(2 ** i)
@@ -99,7 +103,7 @@ def stock_quote(symbol):
     # Yahoo Finance v8
     url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
     try:
-        d = fetch(url, timeout=10, retries=2)
+        d = fetch(url, timeout=10, retries=2, headers={"User-Agent": "Mozilla/5.0"})
         q = d["chart"]["result"][0]
         meta = q["meta"]
         close = q["indicators"]["quote"][0]["close"]
@@ -143,7 +147,7 @@ def stock_range(symbol, days=30):
     """获取历史数据"""
     url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range={days}d"
     try:
-        d = fetch(url, timeout=10, retries=2)
+        d = fetch(url, timeout=10, retries=2, headers={"User-Agent": "Mozilla/5.0"})
         q = d["chart"]["result"][0]
         close = q["indicators"]["quote"][0]["close"]
         prices = [p for p in close if p is not None]
