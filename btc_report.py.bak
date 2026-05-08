@@ -104,9 +104,8 @@ now_utc = datetime.now(timezone.utc)
 bj_h = (now_utc.hour + 8) % 24
 bj_m = now_utc.minute
 
-# 仅在偶数整点±3分钟推送详细报告 (手动触发 skip 此检查)
-force = os.environ.get("FORCE_REPORT", "") == "1"
-if not force and (bj_h % 2 != 0 or bj_m > 3):
+# 仅在偶数整点±3分钟推送详细报告
+if bj_h % 2 != 0 or bj_m > 3:
     print(f"SKIP: {bj_h:02d}:{bj_m:02d}")
     sys.exit(0)
 
