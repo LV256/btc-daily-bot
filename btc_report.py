@@ -332,6 +332,74 @@ ndx_m = stock_range("^IXIC", 30)
 
 print(f"SPX: {spx['price'] if spx else 'N/A'}, NDX: {ndx['price'] if ndx else 'N/A'}, VIX: {vix['price'] if vix else 'N/A'}")
 
+# ═══════════════════════════════════════════════════════
+# 熔断预警: VIX飙升 + 美债暴跌 + 黄金流动性危机
+# ═══════════════════════════════════════════════════════
+tnx = stock_quote("^TNX")      # 10年期美债收益率
+gold = stock_quote("GC=F")     # 黄金期货
+
+macro_state = s.get("macro_alerts", {}) if 's' in dir() and isinstance(s, dict) else {}
+
+alerts_macro = []
+
+# ── VIX 突破阈值 ──
+if vix:
+    v = vix["price"]
+    for th in [30, 40, 50, 60]:
+        if v > th:
+            last = macro_state.get(f"vix_{th}")
+            if not last or abs(v - last) / last > 0.12:
+                alerts_macro.append(f"😱 VIX 突破 {th}：{v:.1f}")
+                macro_state[f"vix_{th}"] = v
+
+    # VIX 单日跳涨 >30%
+    chg = vix.get("chg_pct", 0)
+    if chg > 30:
+        last = macro_state.get("vix_surge")
+        if not last or abs(v - last) / last > 0.20:
+            alerts_macro.append(f"⚡ VIX 单日暴涨 {chg:.0f}%：{v:.1f}")
+            macro_state["vix_surge"] = v
+
+# ── 美债收益率暴跌 ──
+if tnx:
+    yld = tnx["price"]
+    chg = tnx.get("chg_pct", 0)
+    if chg < -5:
+        last = macro_state.get("tnx_drop")
+        if not last or abs(yld - last) / last > 0.15:
+            alerts_macro.append(f"📉 10Y 美债收益率暴跌 {chg:.1f}%：{yld:.3f}%")
+            macro_state["tnx_drop"] = yld
+
+# ── 黄金流动性危机 (VIX>25 且黄金跌 >2%) ──
+if gold and vix:
+    g_chg = gold.get("chg_pct", 0)
+    if g_chg < -2 and vix["price"] > 25:
+        last = macro_state.get("gold_crisis")
+        gp = gold["price"]
+        if not last or abs(gp - last) / last > 0.05:
+            alerts_macro.append(
+                f"⚠️ 流动性危机信号\\n"
+                f"  VIX: {vix['price']:.1f}  黄金: {g_chg:+.1f}%\\n"
+                f"  恐慌中抛售黄金 → 全市场筹现金"
+            )
+            macro_state["gold_crisis"] = gp
+
+# ── 发送 ──
+if alerts_macro:
+    lines = ["🚨 熔断预警\n"]
+    lines.extend(alerts_macro)
+    if spx:
+        lines.append(f"\n标普: ${spx['price']:,.0f} ({spx['chg_pct']:+.1f}%)")
+    if ndx:
+        lines.append(f"纳指: ${ndx['price']:,.0f} ({ndx['chg_pct']:+.1f}%)")
+    lines.append(f"\n—— Hermes · 熔断预警")
+    send_telegram("\n".join(lines))
+    print(f"MACRO ALERT SENT: {len(alerts_macro)} signals")
+
+# 保存到 state dict
+if 's' in dir() and isinstance(s, dict):
+    s["macro_alerts"] = macro_state
+
 # PE 估算（multipl.com）
 def get_pe(symbol):
     try:
