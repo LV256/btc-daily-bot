@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 TZ = timezone(timedelta(hours=8))
-DCA_DAY = 15  # 每月15号定投
+DCA_DAY = 21  # 每月21号定投
 
 # ── 定投配置 ──────────────────────────────────────────
 DCA_ALLOC = {"SPX": 0.60, "NDX": 0.40}  # 标普60% 纳指40%
