@@ -274,13 +274,23 @@ def stock_quote(symbol):
         meta = q["meta"]
         close = q["indicators"]["quote"][0]["close"]
         prices = [p for p in close if p is not None]
-        prev = meta.get("previousClose") or meta.get("regularMarketPrice") or prices[0] if prices else None
+        # 从历史价格计算涨跌（比 previousClose 更可靠，对指数有效）
+        if prices and len(prices) >= 2 and prices[-2] and prices[-2] > 0:
+            prev_close = prices[-2]
+            chg_pct = (meta["regularMarketPrice"] - prev_close) / prev_close * 100
+        else:
+            prev = meta.get("previousClose")
+            if not prev:
+                prev = meta.get("regularMarketPreviousClose")
+            if not prev:
+                prev = meta.get("regularMarketPrice")
+            chg_pct = (meta["regularMarketPrice"] - prev) / prev * 100 if prev and prev > 0 else 0
         return {
             "price": meta["regularMarketPrice"],
-            "prev_close": prev,
+            "prev_close": prev_close if prices and len(prices) >= 2 else (meta.get("previousClose") or meta.get("regularMarketPrice")),
             "high": meta.get("regularMarketDayHigh"),
             "low": meta.get("regularMarketDayLow"),
-            "chg_pct": (meta["regularMarketPrice"] - prev) / prev * 100 if prev and prev > 0 else 0,
+            "chg_pct": chg_pct,
             "prices_5d": prices,
         }
     except Exception as e:
