@@ -455,47 +455,81 @@ def dca_advice():
     lines = []
     date_str = dca_this_month.strftime("%m月%d日")
 
-    # 当天
+    # ═══════ 定投金额 ═══════
+    pe = spx_pe or 27.5
+    if pe < 20:
+        dca_amount = 6000; pe_level = "低估"
+    elif pe < 28:
+        dca_amount = 3000; pe_level = "正常"
+    elif pe < 33:
+        dca_amount = 3000; pe_level = "偏高"
+    else:
+        dca_amount = 1500; pe_level = "极端高估"
+
+    # 定投日
     if is_dca_day:
-        lines.append(f"🔔 今天是定投日！按 60/40 比例买入 SPX/NDX")
+        lines.append(f"🔔 今天是定投日！ PE={pe:.1f} ({pe_level})")
+        lines.append(f"   本次定投: ¥{dca_amount:,}  (标普60% ¥{int(dca_amount*0.6):,} + 纳指40% ¥{int(dca_amount*0.4):,})")
+    else:
+        lines.append(f"📍 距下次定投 {days_to_dca} 天 ({date_str})  PE={pe:.1f}({pe_level}) → 预计 ¥{dca_amount:,}")
 
-    # 倒数
-    if days_to_dca == 0:
-        lines.append(f"📍 今天就是定投日 {date_str}")
-    elif days_to_dca <= 3:
-        lines.append(f"⏰ 距定投日还有 {days_to_dca} 天 ({date_str})")
-
-    # 估值判断
-    if spx_pe:
-        pe = spx_pe
-        if pe < 22:
-            lines.append(f"💰 标普PE={pe:.1f} 低估区间 → 可加倍定投")
-        elif pe < 28:
-            lines.append(f"📊 标普PE={pe:.1f} 合理估值")
-        elif pe < 33:
-            lines.append(f"⚡ 标普PE={pe:.1f} 偏高 → 正常定投，不加倍")
-        else:
-            lines.append(f"⚠️ 标普PE={pe:.1f} 高估 → 正常定投，不加倍")
-
-    # 月度表现
-    if spx_m:
-        chg = spx_m["chg"]
-        if chg < -5:
-            lines.append(f"📉 标普月跌{chg:.1f}% → 考虑加倍定投")
-        elif chg < -2:
-            lines.append(f"📉 标普月跌{chg:.1f}% → 正常定投")
-    if ndx_m:
-        chg = ndx_m["chg"]
-        if chg < -5:
-            lines.append(f"📉 纳指月跌{chg:.1f}% → 考虑加倍定投")
-
-    # VIX
+    # ═══════ 仓位建议 ═══════
     if vix and vix["price"]:
         v = vix["price"]
-        if v > 30:
-            lines.append(f"😱 VIX={v:.1f} 恐慌 → 是加倍定投的好时机")
-        elif v > 25:
-            lines.append(f"😟 VIX={v:.1f} 偏高 → 可适度加码")
+        if v > 50:
+            position = "30% 仓位"
+            reason = "VIX 极高，仅留底仓"
+        elif v > 40:
+            position = "50% 仓位"
+            reason = "VIX 恐慌，已减仓避险"
+        elif v > 30:
+            position = "70% 仓位"
+            reason = "VIX 偏高，适度降仓"
+        else:
+            position = "100% 仓位"
+            reason = "VIX 正常，满仓运行"
+
+        if gold and gold.get("chg_pct", 0) < -2 and v > 25:
+            position = "30% 仓位"; reason += " ⚠️ 流动性危机信号"
+
+        lines.append(f"")
+        lines.append(f"📊 仓位建议: {position}")
+        lines.append(f"   {reason}")
+    else:
+        lines.append(f"")
+        lines.append(f"📊 仓位建议: 100% (VIX 正常)")
+
+    # ═══════ 止盈 ═══════
+    if pe > 40:
+        lines.append(f"")
+        lines.append(f"🎯 止盈: PE={pe:.1f} 极端 → 卖出总仓位 20%, 锁定利润")
+    elif pe > 35:
+        lines.append(f"")
+        lines.append(f"🎯 止盈: PE={pe:.1f} 过高 → 卖出总仓位 10%")
+
+    # ═══════ 加仓信号 ═══════
+    bonus = 0
+    if spx_m and spx_m["chg"] < -10:
+        bonus += 3000
+        lines.append(f"")
+        lines.append(f"📉 标普月跌{spx_m['chg']:.1f}% → 额外追加 ¥3,000")
+    if ndx_m and ndx_m["chg"] < -10:
+        bonus += 3000
+        lines.append(f"📉 纳指月跌{ndx_m['chg']:.1f}% → 额外追加 ¥3,000")
+    if vix and vix["price"] and vix["price"] > 25:
+        if vix["price"] > 40:
+            lines.append(f"⚡ VIX={vix['price']:.1f} 极度恐慌 → 是加仓好时机")
+
+    if bonus > 0:
+        lines.append(f"   本月额外加仓合计: ¥{bonus:,}")
+
+    # ═══════ 定投日当天总结 ═══════
+    if is_dca_day:
+        total = dca_amount + bonus
+        lines.append(f"")
+        lines.append(f"📌 今日操作汇总:")
+        lines.append(f"   定投: ¥{dca_amount:,} | 额外: ¥{bonus:,} | 合计: ¥{total:,}")
+        lines.append(f"   买入: 标普 ¥{int(total*0.6):,} + 纳指 ¥{int(total*0.4):,}")
 
     return "\n".join(lines) if lines else "📊 无特殊信号，正常定投即可"
 
