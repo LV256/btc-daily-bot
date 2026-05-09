@@ -410,39 +410,40 @@ if alerts_macro:
 if 's' in dir() and isinstance(s, dict):
     s["macro_alerts"] = macro_state
 
-# PE 估算（multipl.com）
-def get_pe(symbol):
+# PE 获取 (Yahoo Finance ETF PE)
+def get_etf_pe(symbol):
+    """通过 Yahoo Finance quoteSummary 获取 ETF 的 trailingPE"""
     try:
-        url = f"https://www.multpl.com/s-p-500-pe-ratio/table/by-month" if "spx" in symbol else ""
-        # 使用简化估算: 用过往数据的近似PE
-        pass
-    except:
-        pass
-    return None
-
-# 简化PE：用multpl.com免费CSV
-def get_spx_pe():
-    """标普500 PE"""
-    # 数据源1: multpl.com
-    try:
-        url = "https://www.multpl.com/s-p-500-pe-ratio/table/by-month"
+        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        html = urllib.request.urlopen(req, timeout=10).read().decode()
-        m = re.search(r'<td[^>]*>(\d+\.\d+)</td>', html)
-        if m:
-            pe = float(m.group(1))
-            print(f"multpl PE: {pe}")
-            return pe
-        else:
-            print(f"multpl: no match, html len={len(html)}")
+        d = json.load(urllib.request.urlopen(req, timeout=10))
+        stats = d["quoteSummary"]["result"][0]["defaultKeyStatistics"]
+        pe = stats.get("trailingPE") or stats.get("forwardPE")
+        if pe and pe.get("raw"):
+            return pe["raw"]
     except Exception as e:
-        print(f"multpl error: {e}")
+        print(f"Yahoo PE {symbol}: {e}", file=sys.stderr)
 
-    # 数据源2: 估算值 (基于历史均值 ~24)
-    print("PE: using fallback estimate 27.5")
-    return 27.5  # 提供合理默认值
+    # fallback: 用 multpl.com (已被 JS 渲染，大概率失败)
+    try:
+        alt = {"SPY": "s-p-500-pe-ratio", "QQQ": "nasdaq-100-pe-ratio"}.get(symbol)
+        if alt:
+            url = f"https://www.multpl.com/{alt}/table/by-month"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            html = urllib.request.urlopen(req, timeout=10).read().decode()
+            m = re.search(r'<td[^>]*>(\\d+\\.\\d+)</td>', html)
+            if m:
+                return float(m.group(1))
+            print(f"multpl {symbol}: no match")
+    except Exception as e:
+        print(f"multpl {symbol}: {e}")
 
-spx_pe = get_spx_pe()
+    # 最终 fallback
+    return 27.5 if symbol == "SPY" else None
+
+spx_pe = get_etf_pe("SPY")
+ndx_pe = get_etf_pe("QQQ")
+print(f"PE: SPX={spx_pe} NDX={ndx_pe}")
 
 # ═══════════════════════════════════════════════════════
 # 5. 定投逻辑
@@ -751,6 +752,8 @@ if vix and vix["price"]:
     report += f"\n  VIX: {vix['price']:.1f}"
 if spx_pe:
     report += f"\n  标普PE: {spx_pe:.1f}"
+if ndx_pe:
+    report += f"  纳指PE: {ndx_pe:.1f}"
 
 report += f"""
 
