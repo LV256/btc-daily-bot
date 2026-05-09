@@ -214,6 +214,44 @@ try:
         last_ts = s.get("last_report_ts", 0)
 except Exception:
     pass
+
+# ═══════════════════════════════════════════════════════
+# 2.5 支撑/阻力位逼近告警 (距关键 Fib <3%)
+# ═══════════════════════════════════════════════════════
+FIB_THRESHOLD = 0.03  # 3% 触发告警
+FIB_RESET = 0.05      # 价格偏离 >5% 才允许重新告警同一 level
+
+fib_alert_state = s.get("fib_alerts", {}) if 's' in dir() and isinstance(s, dict) else {}
+
+fib_hit = []
+for lvl_name, lvl_price in [("1.0", fibs["1.0"]), ("0.786", fibs["0.786"]),
+                              ("0.618", fibs["0.618"]), ("0.5", fibs["0.5"])]:
+    dist_pct = abs(btc - lvl_price) / lvl_price
+    if dist_pct < FIB_THRESHOLD:
+        direction = "阻力" if btc < lvl_price else "支撑"
+        last_price = fib_alert_state.get(lvl_name)
+        # 去重：同一 level 且价格未明显变动 → 跳过
+        if last_price and abs(btc - last_price) / last_price < FIB_RESET:
+            continue
+        fib_hit.append((lvl_name, lvl_price, dist_pct, direction))
+        fib_alert_state[lvl_name] = btc
+
+if fib_hit:
+    lines = ["⚡ BTC 关键位逼近\n"]
+    for lvl_name, lvl_price, dist_pct, direction in fib_hit:
+        emo = "🔺 阻力" if direction == "阻力" else "🔻 支撑"
+        lines.append(f"{emo}: ${lvl_price:,.0f} (Fib {lvl_name})  距 {dist_pct*100:.1f}%")
+    lines.append(f"\n当前: ${btc:,.0f}  24h {btc_24h:+.1f}%  恐惧: {fng_now}")
+    lines.append(f"\n—— Hermes · BTC Monitor")
+    send_telegram("\n".join(lines))
+    print(f"FIB ALERT SENT: {len(fib_hit)} levels")
+
+    # 更新 state（后续会统一保存）
+    # fib_alert_state 会被嵌入到 state dict 中一起写入
+    if 's' not in dir() or not isinstance(s, dict):
+        s = {}
+    s['fib_alerts'] = fib_alert_state
+
 gap_min = (time.time() - last_ts) / 60 if last_ts else 999
 heal = gap_min > 25  # 超过25分钟没推 → 调度空窗 → 自愈补推
 
@@ -657,9 +695,11 @@ report += f"""
 
 send_telegram(report)
 print(f"REPORT SENT: {bj_h:02d}:{bj_m:02d}")
-# 写入状态时间戳（用于自愈检测）
+# 写入状态（fib_alerts + 自愈时间戳）
 try:
+    s['last_report_ts'] = time.time()
+    s['last_report_time'] = datetime.now(TZ).isoformat()
     with open(STATE_FILE, "w") as f:
-        json.dump({"last_report_ts": time.time(), "last_report_time": datetime.now(TZ).isoformat()}, f)
+        json.dump(s, f)
 except Exception:
     pass
