@@ -438,8 +438,12 @@ def get_etf_pe(symbol):
     except Exception as e:
         print(f"multpl {symbol}: {e}")
 
-    # 最终 fallback
-    return 27.5 if symbol == "SPY" else None
+    # 最终 fallback (标普 PE ~27.5, 纳指通常高15-20%)
+    if symbol == "SPY":
+        return 27.5
+    elif symbol == "QQQ":
+        return 32.0
+    return None
 
 spx_pe = get_etf_pe("SPY")
 ndx_pe = get_etf_pe("QQQ")
