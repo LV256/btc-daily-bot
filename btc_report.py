@@ -471,22 +471,32 @@ def dca_advice():
     date_str = dca_this_month.strftime("%m月%d日")
 
     # ═══════ 定投金额 ═══════
-    pe = spx_pe or 27.5
-    if pe < 20:
+    pe_spx = spx_pe or 27.5
+    pe_ndx = ndx_pe or 32.0
+
+    # 标普 PE 决定定投总额
+    if pe_spx < 20:
         dca_amount = 6000; pe_level = "低估"
-    elif pe < 28:
+    elif pe_spx < 28:
         dca_amount = 3000; pe_level = "正常"
-    elif pe < 33:
+    elif pe_spx < 33:
         dca_amount = 3000; pe_level = "偏高"
     else:
         dca_amount = 1500; pe_level = "极端高估"
 
+    spx_part = int(dca_amount * 0.6)
+    ndx_part = int(dca_amount * 0.4)
+
     # 定投日
     if is_dca_day:
-        lines.append(f"🔔 今天是定投日！ PE={pe:.1f} ({pe_level})")
-        lines.append(f"   本次定投: ¥{dca_amount:,}  (标普60% ¥{int(dca_amount*0.6):,} + 纳指40% ¥{int(dca_amount*0.4):,})")
+        lines.append(f"🔔 今天是定投日！")
     else:
-        lines.append(f"📍 距下次定投 {days_to_dca} 天 ({date_str})  PE={pe:.1f}({pe_level}) → 预计 ¥{dca_amount:,}")
+        lines.append(f"📍 距下次定投 {days_to_dca} 天 ({date_str})")
+
+    lines.append(f"")
+    lines.append(f"💰 定投金额 (月投 ¥{dca_amount:,})")
+    lines.append(f"  标普500 (60%): ¥{spx_part:,}  |  PE {pe_spx:.1f} ({pe_level})")
+    lines.append(f"  纳指100 (40%): ¥{ndx_part:,}  |  PE {pe_ndx:.1f} {'偏高' if pe_ndx > 30 else '正常' if pe_ndx > 25 else '偏低'})")
 
     # ═══════ 仓位建议 ═══════
     if vix and vix["price"]:
@@ -515,7 +525,7 @@ def dca_advice():
         lines.append(f"📊 仓位建议: 100% (VIX 正常)")
 
     # ═══════ 止盈 ═══════
-    if pe > 40:
+    if pe_spx > 40:
         lines.append(f"")
         lines.append(f"🎯 止盈: PE={pe:.1f} 极端 → 卖出总仓位 20%, 锁定利润")
     elif pe > 35:
