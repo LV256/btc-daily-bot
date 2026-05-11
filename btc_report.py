@@ -475,17 +475,17 @@ def check_pe_cross(label, current, thresholds):
     pe_state[label] = {"pe": current}
     return alerts
 
-# NDX PE 阈值
+# NDX PE 阈值 — 纳指止盈线设更高（历史PE中枢约22 vs 标普16）
 pe_alerts += check_pe_cross("NDX", ndx_pe, [
     (33, "定投减半",
-     "纳指PE突破33！下月定投减半：纳指¥2,000→¥1,000",
+     "纳指PE突破33！下月纳指定投减半：¥2,000→¥1,000",
      "恢复纳指正常定投 ¥2,000/月"),
-    (35, "止盈10%",
-     "纳指PE突破35！卖出纳指持仓的10%",
-     "止盈信号解除，恢复满仓"),
-    (40, "止盈20%",
-     "纳指PE突破40！再卖出10%（累计止盈20%）",
-     "极端止盈信号解除"),
+    (40, "止盈10%",
+     "纳指PE突破40！卖出纳指持仓的10%",
+     "纳指止盈信号解除，恢复满仓"),
+    (45, "止盈20%",
+     "纳指PE突破45！再卖出10%（累计止盈20%）",
+     "纳指极端止盈信号解除"),
 ])
 
 # SPX PE 阈值
@@ -583,12 +583,26 @@ def dca_advice():
         lines.append(f"📊 仓位建议: 100% (VIX 正常)")
 
     # ═══════ 止盈 ═══════
+    # 标普 & 纳指独立止盈，纳指阈值设更高（历史PE中枢不同）
+    stop_profit_msgs = []
+    
+    # 标普止盈
     if pe_spx > 40:
+        stop_profit_msgs.append(f"  标普 PE={pe_spx:.1f} 极端 → 卖出标普仓位 20%")
+    elif pe_spx > 35:
+        stop_profit_msgs.append(f"  标普 PE={pe_spx:.1f} 过高 → 卖出标普仓位 10%")
+    
+    # 纳指止盈 (阈值更高: 40/45)
+    if pe_ndx > 45:
+        stop_profit_msgs.append(f"  纳指 PE={pe_ndx:.1f} 极端 → 卖出纳指仓位 20%")
+    elif pe_ndx > 40:
+        stop_profit_msgs.append(f"  纳指 PE={pe_ndx:.1f} 过高 → 卖出纳指仓位 10%")
+    
+    if stop_profit_msgs:
         lines.append(f"")
-        lines.append(f"🎯 止盈: PE={pe:.1f} 极端 → 卖出总仓位 20%, 锁定利润")
-    elif pe > 35:
-        lines.append(f"")
-        lines.append(f"🎯 止盈: PE={pe:.1f} 过高 → 卖出总仓位 10%")
+        lines.append(f"🎯 止盈信号:")
+        for msg in stop_profit_msgs:
+            lines.append(msg)
 
     # ═══════ 加仓信号 ═══════
     bonus = 0
