@@ -595,8 +595,12 @@ for alert in ma200_alerts:
 # VIX 回落加仓告警
 if vix and vix["price"]:
     for peak_t, fall_t in vix_falling_from:
-        msg = (f"🟢 VIX 从 >{peak_t} 回落至 <{fall_t}！\n"
-               f"  恐慌见顶回落，下月定投加码")
+        if peak_t == 30:
+            msg = (f"🟢 VIX 从 >30 回落至 <25！\n"
+                   f"  恐慌消退，可考虑加仓 (月投→¥6,000)")
+        else:
+            msg = (f"🟢 VIX 从 >{peak_t} 回落至 <{fall_t}！\n"
+                   f"  恐慌见顶回落，下月定投加码")
         print(f"VIX ALERT: {msg[:80]}")
         send_telegram(msg)
 
@@ -645,6 +649,8 @@ def dca_advice():
             vix_add_amount = max(vix_add_amount, 10000)
         elif peak_t == 40 and fall_t == 35:
             vix_add_amount = max(vix_add_amount, 8000)
+        elif peak_t == 30 and fall_t == 25:
+            vix_add_amount = max(vix_add_amount, 6000)
     if vix_add_amount:
         dca_amount = max(dca_amount, vix_add_amount)
         spx_part = int(dca_amount * 0.5)
@@ -700,7 +706,7 @@ def dca_advice():
     # VIX 趋势提示
     if vix and vix["price"]:
         v = vix["price"]
-        if vix_peak > 40 and not vix_rising:
+        if vix_peak > 30 and not vix_rising:
             lines.append(f"")
             lines.append(f"📉 VIX 峰值{vix_peak:.0f}→现{v:.0f}，恐慌回落 — 等待加仓信号")
         elif vix_rising and v > 25:
