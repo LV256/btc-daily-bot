@@ -355,6 +355,35 @@ spx = stock_quote("^GSPC")
 ndx = stock_quote("^IXIC")
 vix = stock_quote("^VIX")
 
+# VIX 状态追踪 — 区分「恐慌上升」和「恐慌回落」
+vix_state = s.get("vix_state", {})
+vix_peak = vix_state.get("peak", 0)  # 本轮恐慌最高VIX
+vix_now = vix["price"] if vix else 0
+
+# 更新峰值
+if vix_now > vix_peak:
+    vix_peak = vix_now
+vix_rising = vix_now > vix_state.get("prev", vix_now)  # VIX是否在上升
+
+# 恐慌回落检测 (从高位回落才触发加仓)
+vix_falling_from = []
+for peak_threshold, fall_threshold in [(50, 40), (40, 35), (30, 25)]:
+    if vix_peak >= peak_threshold and vix_now < fall_threshold:
+        trigger_key = f"triggered_{peak_threshold}"
+        if not vix_state.get(trigger_key):
+            vix_falling_from.append((peak_threshold, fall_threshold))
+            vix_state[trigger_key] = True
+    elif vix_now >= fall_threshold:
+        # 重置：VIX 重新升上去后，回落信号可以再次触发
+        vix_state[f"triggered_{peak_threshold}"] = False
+
+s["vix_state"] = {"peak": vix_peak, "prev": vix_now,
+    "rising": vix_rising,
+    "triggered_50": vix_state.get("triggered_50", False),
+    "triggered_40": vix_state.get("triggered_40", False),
+    "triggered_30": vix_state.get("triggered_30", False),
+}
+
 spx_m = stock_range("^GSPC", 30)
 ndx_m = stock_range("^IXIC", 30)
 
@@ -563,6 +592,14 @@ for alert in ma200_alerts:
     print(f"MA200 ALERT: {alert[:80]}...")
     send_telegram(alert)
 
+# VIX 回落加仓告警
+if vix and vix["price"]:
+    for peak_t, fall_t in vix_falling_from:
+        msg = (f"🟢 VIX 从 >{peak_t} 回落至 <{fall_t}！\n"
+               f"  恐慌见顶回落，下月定投加码")
+        print(f"VIX ALERT: {msg[:80]}")
+        send_telegram(msg)
+
 # ═══════════════════════════════════════════════════════
 # 5. 定投逻辑
 # ═══════════════════════════════════════════════════════
@@ -601,6 +638,18 @@ def dca_advice():
     spx_part = int(dca_amount * 0.5)
     ndx_part = int(dca_amount * 0.5)
 
+    # VIX 恐慌回落 → 月投加码 (抢在PE减半前生效)
+    vix_add_amount = 0
+    for peak_t, fall_t in vix_falling_from:
+        if peak_t == 50 and fall_t == 40:
+            vix_add_amount = max(vix_add_amount, 10000)
+        elif peak_t == 40 and fall_t == 35:
+            vix_add_amount = max(vix_add_amount, 8000)
+    if vix_add_amount:
+        dca_amount = max(dca_amount, vix_add_amount)
+        spx_part = int(dca_amount * 0.5)
+        ndx_part = int(dca_amount * 0.5)
+
     # 定投日
     if is_dca_day:
         lines.append(f"🔔 今天是定投日！")
@@ -614,41 +663,49 @@ def dca_advice():
 
     # ═══════ 仓位建议 ═══════
     position = "100% 仓位"
-    reason = "VIX 正常，满仓运行"
+    reason = "一切正常"
     
-    # VIX 降仓 (优先级最高)
+    # VIX 降仓 — 恐慌上升阶段
     if vix and vix["price"]:
         v = vix["price"]
         if v > 50:
             position = "30% 仓位"
-            reason = "VIX 极高，仅留底仓"
+            reason = f"VIX={v:.0f} 极端恐慌，仅留底仓"
         elif v > 40:
             position = "50% 仓位"
-            reason = "VIX 恐慌，已减仓避险"
+            reason = f"VIX={v:.0f} 恐慌，已减半仓"
         elif v > 30:
             position = "70% 仓位"
-            reason = "VIX 偏高，适度降仓"
+            reason = f"VIX={v:.0f} 偏高，已降三成"
 
         if gold and gold.get("chg_pct", 0) < -2 and v > 25:
-            position = "30% 仓位"; reason += " ⚠️ 流动性危机信号"
+            position = "30% 仓位"; reason += " ⚠️ 流动性危机"
     
-    # MA200 降仓 (VIX正常时才生效，避免和VIX降仓重复)
+    # MA200 叠加
     ma200_below = []
     if spx_ma200 and spx_ma200[2] < 0:
         ma200_below.append(f"标普 {spx_ma200[2]:.1f}%")
     if ndx_ma200 and ndx_ma200[2] < 0:
         ma200_below.append(f"纳指 {ndx_ma200[2]:.1f}%")
-    
     if ma200_below and position == "100% 仓位":
         position = "70% 仓位"
-        reason = "指数跌破200日均线 → 降仓30%"
-        reason += f" ({', '.join(ma200_below)})"
+        reason = f"指数跌破MA200 → 降仓30% ({', '.join(ma200_below)})"
     elif ma200_below:
         reason += f" | MA200: {' & '.join(ma200_below)}"
 
     lines.append(f"")
     lines.append(f"📊 仓位建议: {position}")
     lines.append(f"   {reason}")
+
+    # VIX 趋势提示
+    if vix and vix["price"]:
+        v = vix["price"]
+        if vix_peak > 40 and not vix_rising:
+            lines.append(f"")
+            lines.append(f"📉 VIX 峰值{vix_peak:.0f}→现{v:.0f}，恐慌回落 — 等待加仓信号")
+        elif vix_rising and v > 25:
+            lines.append(f"")
+            lines.append(f"📈 VIX 上升中 ({v:.0f})，恐慌蔓延 — 只卖不买")
 
     # ═══════ 止盈 ═══════
     # 标普 & 纳指独立止盈，纳指阈值设更高（历史PE中枢不同）
@@ -672,21 +729,34 @@ def dca_advice():
         for msg in stop_profit_msgs:
             lines.append(msg)
 
-    # ═══════ 加仓信号 ═══════
+    # ═══════ 抄底加仓 (PE低估 + 月跌追加) ═══════
     bonus = 0
+    add_msgs = []
+    
+    # PE 低估 → 一次性追加
+    if pe_spx < 12:
+        bonus += 10000
+        add_msgs.append(f"💰 标普PE={pe_spx:.1f} 严重低估 → 追加 ¥10,000")
+    elif pe_spx < 15:
+        bonus += 5000
+        add_msgs.append(f"💰 标普PE={pe_spx:.1f} 低估 → 追加 ¥5,000")
+    
+    # 月跌>10% → 追加
     if spx_m and spx_m["chg"] < -10:
         bonus += 3000
-        lines.append(f"")
-        lines.append(f"📉 标普月跌{spx_m['chg']:.1f}% → 额外追加 ¥3,000")
+        add_msgs.append(f"📉 标普月跌{spx_m['chg']:.1f}% → 追加 ¥3,000")
     if ndx_m and ndx_m["chg"] < -10:
         bonus += 3000
-        lines.append(f"📉 纳指月跌{ndx_m['chg']:.1f}% → 额外追加 ¥3,000")
-    if vix and vix["price"] and vix["price"] > 25:
-        if vix["price"] > 40:
-            lines.append(f"⚡ VIX={vix['price']:.1f} 极度恐慌 → 是加仓好时机")
-
+        add_msgs.append(f"📉 纳指月跌{ndx_m['chg']:.1f}% → 追加 ¥3,000")
+    
+    if add_msgs:
+        lines.append(f"")
+        lines.append(f"📈 加仓信号:")
+        for msg in add_msgs:
+            lines.append(f"  {msg}")
+    
     if bonus > 0:
-        lines.append(f"   本月额外加仓合计: ¥{bonus:,}")
+        lines.append(f"   一次性追加合计: ¥{bonus:,}")
 
     # ═══════ 定投日当天总结 ═══════
     if is_dca_day:
