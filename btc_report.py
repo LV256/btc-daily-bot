@@ -334,12 +334,32 @@ def stock_range(symbol, days=30):
         pass
     return None
 
+def stock_ma200(symbol):
+    """获取 200日均线，返回 (当前价, MA200, pct偏离)"""
+    url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1y"
+    try:
+        d = fetch(url, timeout=15, retries=2, headers={"User-Agent": "Mozilla/5.0"})
+        q = d["chart"]["result"][0]
+        close = q["indicators"]["quote"][0]["close"]
+        prices = [p for p in close if p is not None]
+        if len(prices) < 200:
+            return None
+        ma200 = sum(prices[-200:]) / 200
+        current = prices[-1]
+        return (current, ma200, (current - ma200) / ma200 * 100)
+    except Exception as e:
+        print(f"MA200 {symbol}: {e}", file=sys.stderr)
+        return None
+
 spx = stock_quote("^GSPC")
 ndx = stock_quote("^IXIC")
 vix = stock_quote("^VIX")
 
 spx_m = stock_range("^GSPC", 30)
 ndx_m = stock_range("^IXIC", 30)
+
+spx_ma200 = stock_ma200("^GSPC")
+ndx_ma200 = stock_ma200("^IXIC")
 
 print(f"SPX: {spx['price'] if spx else 'N/A'}, NDX: {ndx['price'] if ndx else 'N/A'}, VIX: {vix['price'] if vix else 'N/A'}")
 
@@ -508,6 +528,42 @@ for alert in pe_alerts:
     send_telegram(alert)
 
 # ═══════════════════════════════════════════════════════
+# 4.6 200日均线穿越告警 (跌破 → 降仓30%)
+# ═══════════════════════════════════════════════════════
+ma200_alerts = []
+ma200_state = s.get("ma200_state", {})
+
+def check_ma200_cross(label, ma200_data):
+    """检测200日均线穿越，去重"""
+    if not ma200_data:
+        return []
+    current, ma200, pct = ma200_data
+    prev = ma200_state.get(label, {})
+    was_above = prev.get("above", True)  # 首次默认在线上
+    is_above = current >= ma200
+    
+    alerts = []
+    if was_above and not is_above:
+        alerts.append(f"🔴 {label} 跌破200日均线！\n"
+                      f"  当前 ${current:,.0f} | MA200 ${ma200:,.0f} | 偏离 {pct:+.1f}%\n"
+                      f"  → 降仓30%，等重新站上再恢复")
+    elif not was_above and is_above:
+        alerts.append(f"🟢 {label} 重回200日均线！\n"
+                      f"  当前 ${current:,.0f} | MA200 ${ma200:,.0f} | 偏离 {pct:+.1f}%\n"
+                      f"  → 恢复满仓")
+    
+    ma200_state[label] = {"above": is_above, "current": current, "ma200": ma200, "pct": pct}
+    return alerts
+
+ma200_alerts += check_ma200_cross("SPX", spx_ma200)
+ma200_alerts += check_ma200_cross("NDX", ndx_ma200)
+s["ma200_state"] = ma200_state
+
+for alert in ma200_alerts:
+    print(f"MA200 ALERT: {alert[:80]}...")
+    send_telegram(alert)
+
+# ═══════════════════════════════════════════════════════
 # 5. 定投逻辑
 # ═══════════════════════════════════════════════════════
 today = datetime.now(TZ)
@@ -557,6 +613,10 @@ def dca_advice():
     lines.append(f"  纳指100 (50%): ¥{ndx_part:,}  |  PE {pe_ndx:.1f} {'偏高' if pe_ndx > 30 else '正常' if pe_ndx > 25 else '偏低'}")
 
     # ═══════ 仓位建议 ═══════
+    position = "100% 仓位"
+    reason = "VIX 正常，满仓运行"
+    
+    # VIX 降仓 (优先级最高)
     if vix and vix["price"]:
         v = vix["price"]
         if v > 50:
@@ -568,19 +628,27 @@ def dca_advice():
         elif v > 30:
             position = "70% 仓位"
             reason = "VIX 偏高，适度降仓"
-        else:
-            position = "100% 仓位"
-            reason = "VIX 正常，满仓运行"
 
         if gold and gold.get("chg_pct", 0) < -2 and v > 25:
             position = "30% 仓位"; reason += " ⚠️ 流动性危机信号"
+    
+    # MA200 降仓 (VIX正常时才生效，避免和VIX降仓重复)
+    ma200_below = []
+    if spx_ma200 and spx_ma200[2] < 0:
+        ma200_below.append(f"标普 {spx_ma200[2]:.1f}%")
+    if ndx_ma200 and ndx_ma200[2] < 0:
+        ma200_below.append(f"纳指 {ndx_ma200[2]:.1f}%")
+    
+    if ma200_below and position == "100% 仓位":
+        position = "70% 仓位"
+        reason = "指数跌破200日均线 → 降仓30%"
+        reason += f" ({', '.join(ma200_below)})"
+    elif ma200_below:
+        reason += f" | MA200: {' & '.join(ma200_below)}"
 
-        lines.append(f"")
-        lines.append(f"📊 仓位建议: {position}")
-        lines.append(f"   {reason}")
-    else:
-        lines.append(f"")
-        lines.append(f"📊 仓位建议: 100% (VIX 正常)")
+    lines.append(f"")
+    lines.append(f"📊 仓位建议: {position}")
+    lines.append(f"   {reason}")
 
     # ═══════ 止盈 ═══════
     # 标普 & 纳指独立止盈，纳指阈值设更高（历史PE中枢不同）
@@ -840,6 +908,15 @@ if spx_pe:
     report += f"\n  标普PE: {spx_pe:.1f}"
 if ndx_pe:
     report += f"  纳指PE: {ndx_pe:.1f}"
+# MA200
+if spx_ma200:
+    _, spx_ma, spx_ma_pct = spx_ma200
+    above = "线上" if spx_ma_pct >= 0 else "线下"
+    report += f"\n  标普MA200: ${spx_ma:,.0f} ({above} {spx_ma_pct:+.1f}%)"
+if ndx_ma200:
+    _, ndx_ma, ndx_ma_pct = ndx_ma200
+    above = "线上" if ndx_ma_pct >= 0 else "线下"
+    report += f"\n  纳指MA200: ${ndx_ma:,.0f} ({above} {ndx_ma_pct:+.1f}%)"
 
 report += f"""
 
@@ -883,6 +960,24 @@ if spx_pe:
         dca_risks.append(f"🟠 PE={pe:.1f} 高估")
     else:
         dca_risks.append(f"🔴 PE={pe:.1f} 极端高估")
+
+# MA200 风险
+if spx_ma200:
+    _, _, spx_ma_pct = spx_ma200
+    if spx_ma_pct < -5:
+        dca_risks.append(f"🔴 标普在MA200下方 {spx_ma_pct:.1f}%，降仓30%")
+    elif spx_ma_pct < -2:
+        dca_risks.append(f"🟠 标普跌破MA200 {spx_ma_pct:.1f}%，关注是否持续")
+    elif spx_ma_pct < 0:
+        dca_risks.append(f"🟡 标普略低于MA200 {spx_ma_pct:.1f}%")
+if ndx_ma200:
+    _, _, ndx_ma_pct = ndx_ma200
+    if ndx_ma_pct < -5:
+        dca_risks.append(f"🔴 纳指在MA200下方 {ndx_ma_pct:.1f}%，降仓30%")
+    elif ndx_ma_pct < -2:
+        dca_risks.append(f"🟠 纳指跌破MA200 {ndx_ma_pct:.1f}%，关注是否持续")
+    elif ndx_ma_pct < 0:
+        dca_risks.append(f"🟡 纳指略低于MA200 {ndx_ma_pct:.1f}%")
 
 for r in dca_risks:
     report += f"  {r}\n"
