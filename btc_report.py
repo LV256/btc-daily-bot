@@ -9,7 +9,7 @@ TZ = timezone(timedelta(hours=8))
 DCA_DAY = 21  # 每月21号定投
 
 # ── 定投配置 ──────────────────────────────────────────
-DCA_ALLOC = {"SPX": 0.60, "NDX": 0.40}  # 标普60% 纳指40%
+DCA_ALLOC = {"SPX": 0.50, "NDX": 0.50}  # 标普50% 纳指50%
 
 def fetch(url, timeout=15, retries=3, headers=None):
     for i in range(retries):
@@ -213,6 +213,7 @@ try:
         s = json.load(f)
         last_ts = s.get("last_report_ts", 0)
 except Exception:
+    s = {}
     pass
 
 # ═══════════════════════════════════════════════════════
@@ -450,6 +451,63 @@ ndx_pe = get_etf_pe("QQQ")
 print(f"PE: SPX={spx_pe} NDX={ndx_pe}")
 
 # ═══════════════════════════════════════════════════════
+# 4.5 PE 阈值穿越告警
+# ═══════════════════════════════════════════════════════
+pe_alerts = []
+pe_state = s.get("pe_state", {})
+
+# 首次运行初始化，避免用默认值触发假告警
+for idx in ["SPX", "NDX"]:
+    if idx not in pe_state:
+        pe_state[idx] = {"pe": spx_pe if idx == "SPX" else ndx_pe}
+
+def check_pe_cross(label, current, thresholds):
+    """检测 PE 穿越阈值，去重。返回告警列表"""
+    alerts = []
+    prev_pe = pe_state[label].get("pe", current)
+    
+    for t, name, crossing_up_msg, crossing_down_msg in thresholds:
+        if prev_pe < t <= current:
+            alerts.append(f"🚨 {label} PE 突破 {t} → {crossing_up_msg}")
+        elif prev_pe > t >= current:
+            alerts.append(f"✅ {label} PE 回落至 {t} 以下 → {crossing_down_msg}")
+    
+    pe_state[label] = {"pe": current}
+    return alerts
+
+# NDX PE 阈值
+pe_alerts += check_pe_cross("NDX", ndx_pe, [
+    (33, "定投减半",
+     "纳指PE突破33！下月定投减半：纳指¥2,000→¥1,000",
+     "恢复纳指正常定投 ¥2,000/月"),
+    (35, "止盈10%",
+     "纳指PE突破35！卖出纳指持仓的10%",
+     "止盈信号解除，恢复满仓"),
+    (40, "止盈20%",
+     "纳指PE突破40！再卖出10%（累计止盈20%）",
+     "极端止盈信号解除"),
+])
+
+# SPX PE 阈值
+pe_alerts += check_pe_cross("SPX", spx_pe, [
+    (33, "定投减半",
+     "标普PE突破33！下月定投减半：标普¥2,000→¥1,000",
+     "恢复标普正常定投 ¥2,000/月"),
+    (35, "止盈10%",
+     "标普PE突破35！卖出标普持仓的10%",
+     "止盈信号解除，恢复满仓"),
+    (40, "止盈20%",
+     "标普PE突破40！再卖出10%（累计止盈20%）",
+     "极端止盈信号解除"),
+])
+
+s["pe_state"] = pe_state
+
+for alert in pe_alerts:
+    print(f"PE ALERT: {alert}")
+    send_telegram(alert)
+
+# ═══════════════════════════════════════════════════════
 # 5. 定投逻辑
 # ═══════════════════════════════════════════════════════
 today = datetime.now(TZ)
@@ -476,16 +534,16 @@ def dca_advice():
 
     # 标普 PE 决定定投总额
     if pe_spx < 20:
-        dca_amount = 6000; pe_level = "低估"
+        dca_amount = 8000; pe_level = "低估"
     elif pe_spx < 28:
-        dca_amount = 3000; pe_level = "正常"
+        dca_amount = 4000; pe_level = "正常"
     elif pe_spx < 33:
-        dca_amount = 3000; pe_level = "偏高"
+        dca_amount = 4000; pe_level = "偏高"
     else:
-        dca_amount = 1500; pe_level = "极端高估"
+        dca_amount = 2000; pe_level = "极端高估"
 
-    spx_part = int(dca_amount * 0.6)
-    ndx_part = int(dca_amount * 0.4)
+    spx_part = int(dca_amount * 0.5)
+    ndx_part = int(dca_amount * 0.5)
 
     # 定投日
     if is_dca_day:
@@ -495,8 +553,8 @@ def dca_advice():
 
     lines.append(f"")
     lines.append(f"💰 定投金额 (月投 ¥{dca_amount:,})")
-    lines.append(f"  标普500 (60%): ¥{spx_part:,}  |  PE {pe_spx:.1f} ({pe_level})")
-    lines.append(f"  纳指100 (40%): ¥{ndx_part:,}  |  PE {pe_ndx:.1f} {'偏高' if pe_ndx > 30 else '正常' if pe_ndx > 25 else '偏低'})")
+    lines.append(f"  标普500 (50%): ¥{spx_part:,}  |  PE {pe_spx:.1f} ({pe_level})")
+    lines.append(f"  纳指100 (50%): ¥{ndx_part:,}  |  PE {pe_ndx:.1f} {'偏高' if pe_ndx > 30 else '正常' if pe_ndx > 25 else '偏低'}")
 
     # ═══════ 仓位建议 ═══════
     if vix and vix["price"]:
@@ -554,7 +612,7 @@ def dca_advice():
         lines.append(f"")
         lines.append(f"📌 今日操作汇总:")
         lines.append(f"   定投: ¥{dca_amount:,} | 额外: ¥{bonus:,} | 合计: ¥{total:,}")
-        lines.append(f"   买入: 标普 ¥{int(total*0.6):,} + 纳指 ¥{int(total*0.4):,}")
+        lines.append(f"   买入: 标普 ¥{int(total*0.5):,} + 纳指 ¥{int(total*0.5):,}")
 
     return "\n".join(lines) if lines else "📊 无特殊信号，正常定投即可"
 
@@ -737,7 +795,7 @@ report += f"""
 {btc_advice()}
 
 ━━━━━━━━━━━━━━━━━━━━
-📈 纳指定投  (标普60% / 纳指40%)
+📈 纳指定投  (标普50% / 纳指50%)
 
   定投日: 每月{DCA_DAY}号"""
 
