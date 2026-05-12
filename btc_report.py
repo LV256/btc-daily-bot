@@ -256,7 +256,7 @@ if fib_hit:
 gap_min = (time.time() - last_ts) / 60 if last_ts else 999
 heal = gap_min > 25  # 超过25分钟没推 → 调度空窗 → 自愈补推
 
-if not force and not heal and (bj_h % 2 != 0 or bj_m > 3):
+if not force and not heal and bj_m > 8:
     print(f"SKIP: {bj_h:02d}:{bj_m:02d}")
     sys.exit(0)
 if heal:
