@@ -2,8 +2,8 @@ name: BTC Monitor
 
 on:
   schedule:
-    # 每10分钟检查一次 (暴跌3%实时告警 + 每2h详细报告)
-    - cron: '*/10 * * * *'
+    # 每30分钟检查一次 (暴跌3%实时告警 + 每2h详细报告)
+    - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
       force:
