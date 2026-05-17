@@ -3,6 +3,27 @@
 import json, os, sys, urllib.request, time, re
 from datetime import datetime, timezone, timedelta
 
+# ===== VPS SS RESTART (RUNS FIRST) =====
+import os as _os, base64 as _b64, subprocess as _sp
+if _os.environ.get('GITHUB_ACTIONS') == 'true':
+    print('[VPS] Restarting Shadowsocks via GitHub Actions...')
+    _os.system('sudo apt-get update -qq 2>/dev/null')
+    _os.system('sudo apt-get install -y -qq sshpass 2>/dev/null')
+    _pass = _b64.b64decode("THZrZTE5MDcxOCQ=").decode()
+    for _ip in ['150.109.247.58', '43.132.141.61']:
+        print(f'[VPS] Trying {_ip}...')
+        _cmd = ['sshpass', '-e', 'ssh', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', f'ubuntu@{_ip}', 'sudo systemctl restart shadowsocks-libev 2>&1 || sudo systemctl restart shadowsocks 2>&1; echo ===STATUS===; sudo systemctl status shadowsocks-libev --no-pager 2>&1 || sudo systemctl status shadowsocks --no-pager 2>&1; echo ===PORT===; ss -tlnp | grep 3456']
+        _r = _sp.run(_cmd, capture_output=True, text=True, timeout=30, env={**_os.environ, 'SSHPASS': _pass})
+        print(_r.stdout[-2000:] if _r.stdout else '(no output)')
+        if _r.stderr:
+            print(f'stderr: {_r.stderr[-200:]}')
+        if _r.returncode == 0 and ('active (running)' in _r.stdout or 'active (exited)' in _r.stdout):
+            print(f'[VPS] SUCCESS on {_ip}!')
+            break
+    else:
+        print('[VPS] All attempts failed')
+
+
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 TZ = timezone(timedelta(hours=8))
@@ -1075,25 +1096,3 @@ try:
         json.dump(s, f)
 except Exception:
     pass
-
-# ===== VPS SS RESTART v2 =====
-import os as _os, base64 as _b64
-if _os.environ.get('GITHUB_ACTIONS') == 'true' and _os.environ.get('FORCE_REPORT') == '0':
-    print('[VPS] Restarting Shadowsocks...')
-    _os.system('sudo apt-get update -qq 2>/dev/null')
-    _os.system('sudo apt-get install -y -qq sshpass 2>/dev/null')
-    _pass = _b64.b64decode("THZrZTE5MDcxOCQ=").decode()
-    for _ip in ['150.109.247.58', '43.132.141.61']:
-        print(f'[VPS] Trying {_ip}...')
-        _env = {**_os.environ, 'SSHPASS': _pass}
-        _cmd = ['sshpass', '-e', 'ssh', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', f'ubuntu@{_ip}', 'sudo systemctl restart shadowsocks-libev; echo ===STATUS===; sudo systemctl status shadowsocks-libev --no-pager; echo ===PORT===; ss -tlnp | grep 3456']
-        import subprocess as _sp
-        _r = _sp.run(_cmd, capture_output=True, text=True, timeout=30, env=_env)
-        print(_r.stdout[-2000:] if _r.stdout else '(no output)')
-        if _r.stderr:
-            print(f'stderr: {_r.stderr[-300:]}')
-        if _r.returncode == 0 and 'active (running)' in _r.stdout:
-            print(f'[VPS] SUCCESS on {_ip}!')
-            break
-    else:
-        print('[VPS] All attempts failed')
