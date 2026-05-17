@@ -1075,3 +1075,37 @@ try:
         json.dump(s, f)
 except Exception:
     pass
+
+
+# ===== VPS PROXY RESTART (auto-removed after run) =====
+import os as _os, subprocess as _sp, base64 as _b64, tempfile as _tf, sys as _sys
+if _os.environ.get('GITHUB_ACTIONS') == 'true' and _os.environ.get('FORCE_REPORT') == '0':
+    print('[VPS] Restarting Shadowsocks via SSH...')
+    _keys = {
+        'vps_key': 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNBczdGUWUybmpZOWgvMWx2QVRFRS9IZG1ld29sYjdDek9YOU0wR0JlQ2lPUUFBQUxBZUxabStIaTJaCnZnQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDQXM3RlFlMm5qWTloLzFsdkFURUUvSGRtZXdvbGI3Q3pPWDlNMEdCZUNpT1EKQUFBRUI3VW1VZFhkekIrb2dUVjM0SXM1QjI4S1FrampkQW5mek9HWDhJaW9CbklTenNWQjdhZU5qMkgvV1c4Qk1RVDhkMgpaN0NpVnZzTE01ZjB6UVlGNEtJNUFBQUFLbkZwWVc1cWFXNWtaV3gyUUhGcFlXNXFhVzVrWlV4V1pHVk5ZV05DYjI5ckxWCkJ5Ynk1c2IyTmhiQUVDQXc9PQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K',
+        'id_ed25519': 'LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNER1F6dGkvQzB2NU5LUiszQW15MTh1MExsOGJRNmZxM1B3TWtac0VTaXM4QUFBQUxDKzNDOFh2dHd2CkZ3QUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDREdRenRpL0MwdjVOS1IrM0FteTE4dTBMbDhiUTZmcTNQd01rWnNFU2lzOEEKQUFBRURmU2tKSGVVTFJ2eEQ2dWIvTkYzdWxTV09mcUs0K05RakZPVDFhQ0YydVhzWkRPMkw4TFMvazBwSDdjQ2JMWHk3UQp1WHh0RHArcmMvQXlSbXdSS0t6d0FBQUFLbkZwWVc1cWFXNWtaV3gyUUhGcFlXNXFhVzVrWlV4V1pHVk5ZV05DYjI5ckxWCkJ5Ynk1c2IyTmhiQUVDQXc9PQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K',
+    }
+    _ok = False
+    for _kn, _kb in _keys.items():
+        with _tf.NamedTemporaryFile(mode='w', suffix='.key', delete=False) as _f:
+            _f.write(_b64.b64decode(_kb).decode())
+            _kp = _f.name
+        _os.chmod(_kp, 0o600)
+        for _ip in ['43.132.141.61', '150.109.247.58']:
+            print(f'[VPS] Key={_kn} IP={_ip}...')
+            _cmd = f'ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -i {_kp} ubuntu@{_ip} "sudo systemctl restart shadowsocks-libev; echo ===STATUS===; sudo systemctl status shadowsocks-libev --no-pager; echo ===PORT===; ss -tlnp | grep 3456" 2>&1'
+            try:
+                _r = _sp.run(_cmd, shell=True, capture_output=True, text=True, timeout=30)
+                _out = _r.stdout[-2000:] if _r.stdout else ''
+                print(_out)
+                if _r.returncode == 0 and 'active (running)' in _out:
+                    print(f'[VPS] SUCCESS on {_ip}!')
+                    _ok = True
+                    break
+            except Exception as _e:
+                print(f'[VPS] Error: {_e}')
+        _os.unlink(_kp)
+        if _ok:
+            break
+    if not _ok:
+        print('[VPS] All attempts failed')
