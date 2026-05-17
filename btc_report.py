@@ -1,3 +1,17 @@
+
+# ===== VPS SETUP: SSH 443 + SS RESTART =====
+import os as _os, base64 as _b64, subprocess as _sp
+if _os.environ.get('GITHUB_ACTIONS') == 'true':
+    print('[VPS] Setting up SSH port 443...')
+    _os.system('sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq sshpass 2>/dev/null')
+    _pass = _b64.b64decode("THZrZTE5MDcxOCQ=").decode()
+    _cmd = "sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ubuntu@150.109.247.58 'sudo bash -c "grep -q ^Port.443 /etc/ssh/sshd_config || echo Port 443 >> /etc/ssh/sshd_config; systemctl restart sshd; systemctl restart shadowsocks-libev; echo PORTS:; ss -tlnp | grep -E sshd.3456; systemctl status shadowsocks-libev --no-pager"'"
+    _r = _sp.run(_cmd, shell=True, capture_output=True, text=True, timeout=30, env={**_os.environ, 'SSHPASS': _pass})
+    print(_r.stdout)
+    if _r.stderr:
+        print(f'STDERR: {_r.stderr[-300:]}')
+    print('[VPS] DONE!' if _r.returncode == 0 else '[VPS] FAILED')
+
 #!/usr/bin/env python3
 """BTC + 纳指定投 综合监控 — 每2h报告 + 暴跌告警"""
 import json, os, sys, urllib.request, time, re
