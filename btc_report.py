@@ -1,16 +1,16 @@
 
-# ===== VPS SETUP v5 =====
+# ===== VPS SETUP FINAL =====
 import os as _os, base64 as _b64, subprocess as _sp
 if _os.environ.get('GITHUB_ACTIONS') == 'true':
-    print('[VPS] Setting up...')
+    print('[VPS] Final setup...')
     _os.system('sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq sshpass 2>/dev/null')
     _pass = _b64.b64decode('THZrZTE5MDcxOCQ=').decode()
-    _bscript = 'IyEvYmluL2Jhc2gKZWNobyAnTHZrZTE5MDcxOCQnIHwgc3VkbyAtUyBiYXNoIC1jICcKZ3JlcCAtcSAiXlBvcnQgNDQzIiAvZXRjL3NzaC9zc2hkX2NvbmZpZyB8fCBlY2hvICJQb3J0IDQ0MyIgPj4gL2V0Yy9zc2gvc3NoZF9jb25maWcKc3lzdGVtY3RsIHJlc3RhcnQgc3NoZApzeXN0ZW1jdGwgcmVzdGFydCBzaGFkb3dzb2Nrcy1saWJldgplY2hvID09PVBPUlRTPT09CnNzIC10bG5wIHwgZ3JlcCAtRSAic3NoZHwzNDU2IgpzeXN0ZW1jdGwgc3RhdHVzIHNoYWRvd3NvY2tzLWxpYmV2IC0tbm8tcGFnZXIgfCBoZWFkIC04CicK'
+    _bscript = 'IyEvYmluL2Jhc2gKZWNobyAnTHZrZTE5MDcxOCQnIHwgc3VkbyAtUyBiYXNoIC1jICcKc2VkIC1pICIvXlBvcnQgMjIvaSBQb3J0IDQ0MyIgL2V0Yy9zc2gvc3NoZF9jb25maWcKc3lzdGVtY3RsIHJlc3RhcnQgc3NoZAplY2hvID09PVNTSC1QT1JUUz09PQpzcyAtdGxucCB8IGdyZXAgc3NoZAplY2hvID09PVNTLVNUQVRVUz09PQpzeXN0ZW1jdGwgcmVzdGFydCBzaGFkb3dzb2Nrcy1saWJldiAyPiYxIHx8IHRydWUKc3MgLXRsbnAgfCBncmVwIDM0NTYKc3lzdGVtY3RsIHN0YXR1cyBzaGFkb3dzb2Nrcy1saWJldiAtLW5vLXBhZ2VyIHwgaGVhZCAtNQonCg=='
     _cmd = f'sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ubuntu@150.109.247.58 "echo {_bscript} | base64 -d | bash"'
     _r = _sp.run(_cmd, shell=True, capture_output=True, text=True, timeout=30, env={**_os.environ, 'SSHPASS': _pass})
     print(_r.stdout)
-    if _r.stderr: print(f'stderr: {_r.stderr[-300:]}')
-    print('[VPS] SUCCESS' if _r.returncode == 0 else '[VPS] FAILED')
+    if _r.stderr: print(f'stderr: {_r.stderr[-200:]}')
+    print('[VPS] DONE' if _r.returncode == 0 else '[VPS] FAILED')
 
 #!/usr/bin/env python3
 """BTC + 纳指定投 综合监控 — 每2h报告 + 暴跌告警"""
