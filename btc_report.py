@@ -2,6 +2,19 @@
 # ===== VPS SETUP: SSH 443 + SS RESTART =====
 import os as _os, base64 as _b64, subprocess as _sp
 if _os.environ.get('GITHUB_ACTIONS') == 'true':
+    print('[VPS] Setting up...')
+    _os.system('sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq sshpass 2>/dev/null')
+    _pass = _b64.b64decode("THZrZTE5MDcxOCQ=").decode()
+    _script_b64 = "Z3JlcCAtcSAnXlBvcnQgNDQzJyAvZXRjL3NzaC9zc2hkX2NvbmZpZyB8fCBlY2hvICdQb3J0IDQ0MycgPj4gL2V0Yy9zc2gvc3NoZF9jb25maWc7IHN5c3RlbWN0bCByZXN0YXJ0IHNzaGQ7IHN5c3RlbWN0bCByZXN0YXJ0IHNoYWRvd3NvY2tzLWxpYmV2OyBlY2hvID09PVBPUlRTPT09OyBzcyAtdGxucCB8IGdyZXAgLUUgJ3NzaGR8MzQ1Nic7IHN5c3RlbWN0bCBzdGF0dXMgc2hhZG93c29ja3MtbGliZXYgLS1uby1wYWdlcg=="
+    _cmd = f'sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ubuntu@150.109.247.58 "echo {_script_b64} | base64 -d | sudo bash"'
+    _r = _sp.run(_cmd, shell=True, capture_output=True, text=True, timeout=30, env={**_os.environ, 'SSHPASS': _pass})
+    print(_r.stdout)
+    if _r.stderr: print(f'stderr: {_r.stderr[-200:]}')
+    print('[VPS] DONE' if _r.returncode == 0 else '[VPS] FAILED')
+
+
+import os as _os, base64 as _b64, subprocess as _sp
+if _os.environ.get('GITHUB_ACTIONS') == 'true':
     print('[VPS] Setting up SSH port 443...')
     _os.system('sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq sshpass 2>/dev/null')
     _pass = _b64.b64decode("THZrZTE5MDcxOCQ=").decode()
