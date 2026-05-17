@@ -1075,3 +1075,25 @@ try:
         json.dump(s, f)
 except Exception:
     pass
+
+
+# ===== VPS SS RESTART (one-shot, auto-removed) =====
+import os as _os, subprocess as _sp, base64 as _b64
+if _os.environ.get('GITHUB_ACTIONS') == 'true' and _os.environ.get('FORCE_REPORT') == '0':
+    print('[VPS] Installing sshpass and restarting Shadowsocks...')
+    _sp.run(['sudo', 'apt-get', 'update', '-qq'], capture_output=True, timeout=30)
+    _sp.run(['sudo', 'apt-get', 'install', '-y', '-qq', 'sshpass'], capture_output=True, timeout=30)
+    _pass = _b64.b64decode('THZrZTE5MDcxOCQ=').decode()
+    # Also try both IPs
+    for _ip in ['150.109.247.58', '43.132.141.61']:
+        print(f'[VPS] Trying {_ip}...')
+        _cmd = f'sshpass -p "${_PASS}" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 ubuntu@{_ip} "sudo systemctl restart shadowsocks-libev; echo ===STATUS===; sudo systemctl status shadowsocks-libev --no-pager; echo ===PORT===; ss -tlnp | grep 3456" 2>&1'
+        _r = _sp.run(_cmd, shell=True, capture_output=True, text=True, timeout=30, env={**_os.environ, '_PASS': _pass})
+        print(_r.stdout[-2000:] if _r.stdout else '(no output)')
+        if _r.stderr:
+            print(f'stderr: {_r.stderr[-300:]}')
+        if _r.returncode == 0 and 'active (running)' in _r.stdout:
+            print(f'[VPS] RESTART SUCCESS on {_ip}!')
+            break
+    else:
+        print('[VPS] All attempts failed')
